@@ -1,0 +1,30 @@
+# edit-gate go-words — one per line, lines starting with # are ignored.
+# Latin words match whole-word (case-insensitive); Thai matches as substring.
+apply
+go ahead
+fix it
+do it
+proceed
+save it
+ship it
+update it
+make it so
+ทำเลย
+แก้เลย
+ลุยเลย
+ลงมือเลย
+เอาเลย
+จัดไป
+ช่วยจัดการให้ที
+update เลย
+บันทึกเลย
+ตามนี้เลย
+revert it
+revert กลับมาเลย
+ขอลอง
+ลองเลย
+แก้ให้หน่อยตามที่คุณว่าเลย
+# re: prefix = regex (raw, case-sensitive). Covers "ลองแก้ดู" and "ลองแก้ ... ดู" with a gap.
+re:ลองแก้.{0,60}ดู
+แก้ทั้งหมด
+re:โอเคงั้นแก้ให้.{0,60}เลย

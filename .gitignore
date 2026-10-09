@@ -1,0 +1,4 @@
+.DS_Store
+__pycache__/
+# probe stub kept only while a session still references it; not part of the plugin
+plugins/tstack-core/scripts/deny-test.py

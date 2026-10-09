@@ -1,0 +1,16 @@
+{
+  "name": "tstack-workflow",
+  "owner": { "name": "Trin (totofk)" },
+  "plugins": [
+    {
+      "name": "tstack-core",
+      "source": "./plugins/tstack-core",
+      "description": "Gated, human-in-the-loop workflow for Claude Code: edit gate, secret gate, git guard, dev-server gate, prompt hooks, orchestrator rules, handoff and retro."
+    },
+    {
+      "name": "tstack-delivery",
+      "source": "./plugins/tstack-delivery",
+      "description": "Verify, review and deliver: environment-proven verify passes, a review gate with cheap auto-fixes, and a one-command commit/push/PR chain driven by the repo's .claude/workflow.json."
+    }
+  ]
+}

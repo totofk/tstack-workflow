@@ -1,0 +1,15 @@
+{
+  "$comment": "Copy to <repo>/.claude/workflow.json and commit. Every key is optional; omitted keys take the defaults shown here. Read by the tstack-delivery skills through `workflow-config`.",
+  "base": "develop",
+  "protected": ["main", "master", "develop"],
+  "assignee": "@me",
+  "title": {
+    "feature": "{type}: {summary}",
+    "bugfix": "fix: {summary}",
+    "hotfix": "hotfix: {summary}"
+  },
+  "acceptance": "brief",
+  "launch": { "entry": "wt-{port}", "ports": [3001, 3002] },
+  "worktree": ".worktrees/wt-{port}",
+  "reviewer": null
+}

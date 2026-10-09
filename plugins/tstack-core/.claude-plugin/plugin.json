@@ -1,0 +1,5 @@
+{
+  "name": "tstack-core",
+  "description": "Gated, human-in-the-loop workflow for Claude Code: edit gate, secret gate, git guard, dev-server gate, prompt hooks, orchestrator rules, handoff and retro.",
+  "author": { "name": "Trin (totofk)" }
+}

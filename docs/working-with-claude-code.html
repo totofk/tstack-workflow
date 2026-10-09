@@ -1,0 +1,537 @@
+<title>Working with Claude Code</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column (72ch) with full-width tables/diagrams; three parts (flow, machinery, running it), left-rail numbers follow reading order. */
+:root {
+  --bg: #F6F5F0;
+  --surface: #FFFFFF;
+  --fg: #1C1F2A;
+  --muted: #5B6070;
+  --line: #D9D7CE;
+  --accent: #5347B8;
+  --accent-soft: #ECEAF9;
+  --you: #0F6E56;
+  --you-soft: #E1F5EE;
+  --warn: #8A4E0B;
+  --warn-soft: #FAEEDA;
+  --code-bg: #EEEDE6;
+  --font-body: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171E; --surface: #1D2028; --fg: #ECEBE4; --muted: #A5A9B8; --line: #343846;
+    --accent: #A79EF0; --accent-soft: #2A2742; --you: #5DCAA5; --you-soft: #11332A;
+    --warn: #F0B35B; --warn-soft: #3A2A12; --code-bg: #262932; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15171E; --surface: #1D2028; --fg: #ECEBE4; --muted: #A5A9B8; --line: #343846;
+  --accent: #A79EF0; --accent-soft: #2A2742; --you: #5DCAA5; --you-soft: #11332A;
+  --warn: #F0B35B; --warn-soft: #3A2A12; --code-bg: #262932; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.6; padding-inline: 16px; padding-block: 0 96px; }
+.wrap { max-width: 1040px; margin: 0 auto; }
+header.top { padding-block: 56px 32px; border-bottom: 1px solid var(--line); margin-bottom: 40px; }
+.eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); margin: 0 0 12px; }
+h1 { font-size: clamp(32px, 5vw, 48px); line-height: 1.1; margin: 0 0 16px; font-weight: 600; text-wrap: balance; }
+h2 { font-size: 26px; line-height: 1.2; margin: 0 0 8px; font-weight: 600; text-wrap: balance; }
+h3 { font-size: 18px; margin: 0 0 6px; font-weight: 600; }
+p { margin: 0 0 12px; max-width: 72ch; }
+.lede { font-size: 19px; color: var(--muted); max-width: 70ch; }
+.meta { font-family: var(--font-mono); font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 16px; }
+.tldr { margin-top: 24px; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--you); border-radius: 0 8px 8px 0; padding: 14px 18px; max-width: 80ch; }
+.tldr h3 { font-size: 14px; margin-bottom: 8px; color: var(--you); }
+.tldr li { font-size: 14.5px; line-height: 1.7; }
+nav.toc { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+nav.toc a { font-size: 13px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg); text-decoration: none; background: var(--surface); }
+nav.toc a:hover, nav.toc a:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+.part { font-size: 12px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin: 40px 0 8px; padding-left: 76px; }
+section { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 0 20px; padding-block: 40px; border-top: 1px solid var(--line); }
+section > .num { font-family: var(--font-mono); font-size: 13px; color: var(--muted); padding-top: 8px; }
+section > .body { min-width: 0; }
+.sub { color: var(--muted); max-width: 72ch; margin-bottom: 24px; }
+code, .mono { font-family: var(--font-mono); font-size: .9em; }
+code { background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+.diagram { overflow-x: auto; margin: 8px 0 24px; }
+.diagram svg { display: block; min-width: 640px; max-width: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.legend .l-claude::before { background: var(--accent-soft); border: 1px solid var(--accent); }
+.legend .l-you::before { background: var(--you-soft); border: 1px solid var(--you); }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 8px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; min-width: 0; }
+.card h3 { font-size: 16px; }
+.card p { font-size: 14px; margin: 0; color: var(--muted); max-width: none; }
+.card .when { font-family: var(--font-mono); font-size: 12px; color: var(--accent); margin-bottom: 8px; display: block; }
+.phase { margin-bottom: 36px; }
+.phase h3 { font-size: 20px; margin-bottom: 4px; }
+.phase .gate { display: inline-block; font-size: 12px; font-weight: 600; background: var(--you-soft); color: var(--you); border-radius: 999px; padding: 3px 10px; margin-bottom: 14px; }
+.cols3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.cols3 > div { min-width: 0; }
+.cols3 h4 { font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+ul { margin: 0; padding-left: 18px; }
+ol { margin: 0 0 12px; padding-left: 20px; max-width: 80ch; }
+li { margin-bottom: 6px; }
+.cols3 li { font-size: 14.5px; }
+.prose p { max-width: 80ch; }
+.prose p strong { font-weight: 600; }
+.table-wrap { overflow-x: auto; margin: 8px 0 20px; }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 14px; background: var(--surface); }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-top: 1px solid var(--line); }
+th { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; border-top: none; }
+tbody tr:last-child td { border-bottom: 1px solid var(--line); }
+td.k { font-weight: 600; white-space: nowrap; }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
+.pill.deny { background: var(--warn-soft); color: var(--warn); }
+.pill.ask { background: var(--you-soft); color: var(--you); }
+.pill.block { background: var(--accent-soft); color: var(--accent); }
+.note { border-left: 3px solid var(--accent); padding: 10px 16px; background: var(--surface); margin: 16px 0; font-size: 14.5px; max-width: 72ch; }
+.note p { margin: 0; max-width: none; }
+.note.you { border-color: var(--you); }
+.stat { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 16px 0 24px; }
+.stat div { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.stat b { display: block; font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 12.5px; color: var(--muted); }
+.timeline { list-style: none; padding: 0; margin: 0 0 16px; border-left: 2px solid var(--line); }
+.timeline li { position: relative; padding: 0 0 18px 22px; margin: 0; max-width: 80ch; }
+.timeline li::before { content: ""; position: absolute; left: -7px; top: 7px; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
+.timeline li.you::before { background: var(--you); }
+.timeline .who { font-family: var(--font-mono); font-size: 12px; color: var(--muted); display: block; }
+.timeline p { font-size: 14.5px; margin: 2px 0 0; max-width: none; }
+dl.gloss { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 20px; margin: 0; max-width: 80ch; }
+dl.gloss dt { font-weight: 600; font-size: 14.5px; }
+dl.gloss dd { margin: 0; font-size: 14.5px; color: var(--muted); }
+footer { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+@media (max-width: 640px) {
+  section { grid-template-columns: 1fr; }
+  section > .num { padding-top: 0; }
+  .part { padding-left: 0; }
+  dl.gloss { grid-template-columns: 1fr; } dl.gloss dd { margin-bottom: 8px; }
+}
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+
+<div class="wrap">
+<header class="top">
+  <p class="eyebrow">TQM Platform · engineering</p>
+  <h1>Working with Claude Code</h1>
+  <p class="lede">How one task travels from brief to close: six phases, the decisions that start each one, the machinery behind them (subagents, gates, sidecars, the weekly retro), and what you need installed to run the same setup.</p>
+  <div class="meta"><span>author: Trin</span><span>inventory measured 2026-10-09</span><span>source: ~/.claude/CLAUDE.md, hooks, skills</span></div>
+  <div class="tldr" lang="th">
+    <h3>สรุปสั้น (ไทย)</h3>
+    <ul>
+      <li>งานหนึ่งชิ้นวิ่ง 6 phase: บรีฟ → apply → verify → deliver → หลัง PR → ปิดงาน แต่ละ phase เริ่มได้ก็ต่อเมื่อผมตัดสินใจก่อน (go-word, เลือกที่ verify, สั่ง deliver, merge, สั่ง stop)</li>
+      <li>Claude ไม่แตะไฟล์ใน repo ถ้าข้อความล่าสุดไม่มีคำสั่ง (apply / แก้เลย / ทำเลย) — hook บังคับ ไม่ใช่แค่กติกา</li>
+      <li>งานหนักส่งให้ subagent ตาม lane (verify / implement / research / review) main session เขียน brief, เช็คผล, ทำ git ทั้งหมด</li>
+      <li>มี "sidecar" ที่วิ่งทุก turn แต่ไม่อยู่ใน flow: วัด context, เสนอ memory, จด ledger, update HANDOFF.md และมี retro ทุกอาทิตย์อ่าน transcript แล้วเสนอ rule ใหม่ (ผมเป็นคนเลือกว่าจะรับ)</li>
+      <li>ส่วนที่แชร์ให้ทีมได้คือ rule file + hook + skill (เป็นไฟล์ทั้งหมด) ส่วน memory 75 ไฟล์เป็น gotcha ของเครื่องผม ไม่ต้องส่งต่อ — ศัพท์ที่ใช้ในหน้านี้อยู่ใน Glossary ท้ายหน้า</li>
+    </ul>
+  </div>
+</header>
+
+<nav class="toc" aria-label="Sections">
+  <a href="#flow">1 The flow</a>
+  <a href="#phases">2 Phase by phase</a>
+  <a href="#verify">3 Verify in detail</a>
+  <a href="#example">4 Worked example</a>
+  <a href="#agents">5 Main and subagents</a>
+  <a href="#gates">6 Gates</a>
+  <a href="#sidecars">7 Always on</a>
+  <a href="#retro">8 Weekly retro</a>
+  <a href="#deps">9 Dependencies</a>
+  <a href="#export">10 What can be shared</a>
+  <a href="#glossary">11 Glossary</a>
+</nav>
+
+<p class="part">Part A · The flow</p>
+
+<section id="flow">
+  <div class="num">01</div>
+  <div class="body">
+    <h2>The flow at a glance</h2>
+    <p class="sub">Six phases, top to bottom. Claude runs each phase; nothing moves to the next one without the decision shown on the right. The one loop that is not drawn: any code change after verify sends the touched scope back to phase 3, then on to phase 4 as usual.</p>
+    <div class="legend"><span class="l-claude">Claude runs it</span><span class="l-you">Your decision starts it</span></div>
+    <div class="diagram">
+<svg viewBox="0 0 900 560" width="900" height="560" role="img" aria-labelledby="flow-title">
+<title id="flow-title">Six phases on the left, each started by a user decision on the right</title>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<g font-family="IBM Plex Sans, Arial, sans-serif">
+<g>
+<rect x="20" y="20" width="480" height="64" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1"/>
+<text x="40" y="46" font-size="16" font-weight="600" fill="var(--fg)">1. Brief and plan</text>
+<text x="40" y="68" font-size="13" fill="var(--muted)">Card, Figma or defect list → scope, questions, tasks.md</text>
+<rect x="580" y="30" width="300" height="44" rx="22" fill="var(--you-soft)" stroke="var(--you)" stroke-width="1"/>
+<text x="730" y="57" font-size="14" font-weight="600" fill="var(--fg)" text-anchor="middle">You brief the task</text>
+<line x1="578" y1="52" x2="506" y2="52" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+</g>
+<line x1="260" y1="86" x2="260" y2="114" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+<g>
+<rect x="20" y="118" width="480" height="64" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1"/>
+<text x="40" y="144" font-size="16" font-weight="600" fill="var(--fg)">2. Apply</text>
+<text x="40" y="166" font-size="13" fill="var(--muted)">Worktree, edits, lint/tsc, weight line, HANDOFF.md</text>
+<rect x="580" y="128" width="300" height="44" rx="22" fill="var(--you-soft)" stroke="var(--you)" stroke-width="1"/>
+<text x="730" y="155" font-size="14" font-weight="600" fill="var(--fg)" text-anchor="middle">Go-word in this message</text>
+<line x1="578" y1="150" x2="506" y2="150" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+</g>
+<line x1="260" y1="184" x2="260" y2="212" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+<g>
+<rect x="20" y="216" width="480" height="64" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1"/>
+<text x="40" y="242" font-size="16" font-weight="600" fill="var(--fg)">3. Verify</text>
+<text x="40" y="264" font-size="13" fill="var(--muted)">Env proven, subagent runs scenarios, screenshots, checklist table</text>
+<rect x="580" y="226" width="300" height="44" rx="22" fill="var(--you-soft)" stroke="var(--you)" stroke-width="1"/>
+<text x="730" y="253" font-size="14" font-weight="600" fill="var(--fg)" text-anchor="middle">Where to verify (here / new session)</text>
+<line x1="578" y1="248" x2="506" y2="248" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+</g>
+<line x1="260" y1="282" x2="260" y2="310" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+<g>
+<rect x="20" y="314" width="480" height="64" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1"/>
+<text x="40" y="340" font-size="16" font-weight="600" fill="var(--fg)">4. Deliver</text>
+<text x="40" y="362" font-size="13" fill="var(--muted)">Review → commit → push → PR, one chain, one go</text>
+<rect x="580" y="324" width="300" height="44" rx="22" fill="var(--you-soft)" stroke="var(--you)" stroke-width="1"/>
+<text x="730" y="351" font-size="14" font-weight="600" fill="var(--fg)" text-anchor="middle">/deliver-finished-task</text>
+<line x1="578" y1="346" x2="506" y2="346" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+</g>
+<line x1="260" y1="380" x2="260" y2="408" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+<g>
+<rect x="20" y="412" width="480" height="64" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1"/>
+<text x="40" y="438" font-size="16" font-weight="600" fill="var(--fg)">5. After the PR</text>
+<text x="40" y="460" font-size="13" fill="var(--muted)">Bot findings checked, follow-ups re-verified in scope</text>
+<rect x="580" y="422" width="300" height="44" rx="22" fill="var(--you-soft)" stroke="var(--you)" stroke-width="1"/>
+<text x="730" y="449" font-size="14" font-weight="600" fill="var(--fg)" text-anchor="middle">You merge and sync qa</text>
+<line x1="578" y1="444" x2="506" y2="444" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+</g>
+<line x1="260" y1="478" x2="260" y2="506" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+<g>
+<rect x="20" y="510" width="480" height="44" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1"/>
+<text x="40" y="537" font-size="16" font-weight="600" fill="var(--fg)">6. Close <tspan font-size="13" font-weight="400" fill="var(--muted)">· memory, cleanup, retro, handoff on request</tspan></text>
+<rect x="580" y="510" width="300" height="44" rx="22" fill="var(--you-soft)" stroke="var(--you)" stroke-width="1"/>
+<text x="730" y="537" font-size="14" font-weight="600" fill="var(--fg)" text-anchor="middle">"stop" or "handoff"</text>
+<line x1="578" y1="532" x2="506" y2="532" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+</g>
+</g>
+</svg>
+    </div>
+  </div>
+</section>
+
+<section id="phases">
+  <div class="num">02</div>
+  <div class="body">
+    <h2>Phase by phase: what you give, what Claude does, what you get</h2>
+    <p class="sub">Each phase ends with something concrete you can act on. The "you get" column is the hand-over.</p>
+
+    <div class="phase">
+      <h3>1. Brief and plan</h3>
+      <span class="gate">Starts when: you describe the task</span>
+      <div class="cols3">
+        <div><h4>You give</h4><ul><li>A ClickUp card link, a Figma frame, a defect list, or a plain description.</li><li>The card's checklist is the acceptance criteria; its <code>r{xx} mid|end</code> tag decides the PR title later.</li></ul></div>
+        <div><h4>Claude does</h4><ul><li>Fetches the card with checklists and attachments.</li><li>Surveys <code>origin/develop</code>, the hotfix gap to <code>main</code>, and open PRs, never the main checkout.</li><li>Big work: a map or an OpenSpec proposal that ends in a <code>tasks.md</code>.</li><li>Answers any question in plain text before asking its own.</li></ul></div>
+        <div><h4>You get</h4><ul><li>A written scope and task list.</li><li>Crux decisions one at a time; low-stakes gaps as one numbered list with a recommendation each. You reply with the numbers you reject.</li></ul></div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <h3>2. Apply</h3>
+      <span class="gate">Starts when: a go-word is in your current message (apply, แก้เลย, ทำเลย …)</span>
+      <div class="cols3">
+        <div><h4>You give</h4><ul><li>The go-word. Questions, tone, momentum, and earlier go-words never count.</li><li>Optionally <code>arm session</code> to keep the gate open until you say lock.</li></ul></div>
+        <div><h4>Claude does</h4><ul><li>Works in a private worktree <code>.worktrees/wt-&lt;port&gt;</code>; the main checkout belongs to GitKraken.</li><li>Says the routing line; delegates implementation when a <code>tasks.md</code> exists, edits itself only for 2 files / 30 lines or less.</li><li>Walks <code>tasks.md</code> against the real diff hunks when an implementer returns. A ticked task is a claim, not evidence.</li><li>Runs lint and tsc.</li></ul></div>
+        <div><h4>You get</h4><ul><li>The diff, the weight line, memory proposals, "HANDOFF.md updated".</li><li>Heavy: the review report first, before verify.</li><li>Blocked by the gate: the ready diff and "type apply".</li></ul></div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <h3>3. Verify</h3>
+      <span class="gate">Starts when: you say verify, and choose here or a new session (the choice holds for the rest of the task)</span>
+      <div class="cols3">
+        <div><h4>You give</h4><ul><li>The verify go and the session choice.</li><li>A yes when Claude asks before touching your infra (DB tunnel, dev servers, ngrok).</li></ul></div>
+        <div><h4>Claude does</h4><ul><li>Prepares and proves the environment, writes a brief, dispatches a verifier, judges the result against the code.</li><li>Full table in the next section.</li></ul></div>
+        <div><h4>You get</h4><ul><li>Screenshots as files plus a checklist table: covered / partial / not covered, with evidence per item.</li><li>You tick ClickUp yourself; Claude never ticks unverified items.</li></ul></div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <h3>4. Deliver</h3>
+      <span class="gate">Starts when: you invoke /deliver-finished-task, or give one go-word after the verify-end diff</span>
+      <div class="cols3">
+        <div><h4>You give</h4><ul><li>One go for the whole chain. Claude never re-asks per step and never opens a PR on intent stated earlier.</li><li>Answers to one batched question when values are unknown (base branch, PR title sprint tag).</li></ul></div>
+        <div><h4>Claude does</h4><ul><li>Runs the code review (skipped when it already ran on the same code), commits with conventional messages, pushes, opens the PR, assigns you.</li><li>States <code>source → target</code> before any push.</li><li>Stops only when blocked: red lint/tsc, no verify yet, conflict, or a force-push would be needed (you run that command yourself).</li><li>Removes the worktree in the same turn the push lands.</li></ul></div>
+        <div><h4>You get</h4><ul><li>A PR titled by rule: <code>[SP{xx}:RM|RE] branch</code>, <code>[Bugfix] - slug</code>, or twin <code>[Hotfix] - slug</code> PRs to main and qa2.</li><li>A body with Scope, Decisions, Verification record, screenshots by hosted URL, and any merge dependency. No AI attribution.</li></ul></div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <h3>5. After the PR</h3>
+      <span class="gate">Starts when: review bots or teammates comment</span>
+      <div class="cols3">
+        <div><h4>You give</h4><ul><li>"Reply to the comments" or a decision on a bot's proposed fix.</li><li>The merge, and the qa sync in GitKraken.</li></ul></div>
+        <div><h4>Claude does</h4><ul><li>Verifies each finding against the code before answering; replies in Thai with a model footer; resolves only the threads it replied to.</li><li>A follow-up fix re-runs verify only for the scope the new diff touches.</li><li>Hotfix follow-ups stay on the same hotfix branch; qa2 never flows back to main.</li></ul></div>
+        <div><h4>You get</h4><ul><li>Threads answered with evidence, and a re-verified diff where one was needed.</li><li>A PR that stays mergeable; direct pushes to develop/main/qa only on explicit permission per instance.</li></ul></div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <h3>6. Close</h3>
+      <span class="gate">Starts when: you say stop, or ask for a handoff</span>
+      <div class="cols3">
+        <div><h4>You give</h4><ul><li>"stop" ends the session; "handoff" asks for the resume package.</li><li>Confirmation on memory proposals.</li></ul></div>
+        <div><h4>Claude does</h4><ul><li>Three lines: git and PR state, what is pending, merged or not.</li><li>Removes the handoff directory and scratch files once nothing is pending.</li><li>Offers a retro when the session showed a signal.</li></ul></div>
+        <div><h4>You get</h4><ul><li>On "handoff": HANDOFF.md plus a paste-ready resume prompt with SHAs, next steps, environment bring-up, pending memories.</li><li>A memory set trimmed to what still helps the next task.</li></ul></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="verify">
+  <div class="num">03</div>
+  <div class="body">
+    <h2>Verify in detail</h2>
+    <p class="sub">Seven steps. Steps 1 to 3 and 5 to 7 run in the main session; step 4 is a subagent. Each step produces something the next one, or a later phase, consumes.</p>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th style="width:18%">Step</th><th style="width:40%">Produces</th><th>Consumed by</th></tr></thead>
+      <tbody>
+        <tr><td class="k">1 Preflight env</td><td>A server on the worktree's port, with a real install, Prisma client generated, <code>.env</code> loaded through <code>envrun</code>, CORS allowlisted, test data present.</td><td>The verifier. It never repairs the environment; it stops and reports, the main session fixes, and continues the same agent.</td></tr>
+        <tr><td class="k">2 Smoke check</td><td>Proof that the served code is the code under test: the server's cwd is the worktree (<code>lsof -a -p &lt;pid&gt; -d cwd</code>), a feature symbol greps in that tree's <code>.next</code>, and no other port is baked into its chunks.</td><td>Pasted into the brief. A failed smoke means no dispatch. This catches the case where a <code>.next</code> built by another session keeps passing while that session's server is up.</td></tr>
+        <tr><td class="k">3 Write brief</td><td>Proven facts (URLs, ports, ids, paths), scenarios from the checklist, the evidence path, a tool-call cap the agent counts itself (default 120), the model.</td><td>The dispatch, and every rerun: a rerun of an existing script goes to a new agent with the same brief, never a resumed one.</td></tr>
+        <tr><td class="k">4 Subagent runs</td><td>PNGs per scenario, a report, reusable Playwright scripts, and a list of database SELECTs it could not run, all under <code>~/.claude/handoffs/&lt;task&gt;/verify/</code>.</td><td>Step 5. The SELECTs are run by the main session after hand-back.</td></tr>
+        <tr><td class="k">5 Hand-back check</td><td>An outcome (correct / partial / blocked / wrong) from reading the full final message against the code, and one row in the dispatch ledger.</td><td>The decision whether this verify counts. The Sunday retro.</td></tr>
+        <tr><td class="k">6 Report to you</td><td>Screenshots sent as files, the checklist table with evidence per item, HANDOFF.md updated.</td><td>You tick ClickUp. The table becomes the PR body's Verification record. Verify-end is where you give the deliver go.</td></tr>
+        <tr><td class="k">7 Teardown</td><td>The verify worktree removed and its server stopped, in the turn the result is reported. Scripts and PNGs stay.</td><td>Scoped re-verify after a tweak reuses the scripts. PNGs go into the PR body.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="note"><p><strong>The loop.</strong> Any change after step 6 voids the verify for the scope the diff touches: changed files plus their callers, derived from the diff, never from the fix's intent. Back to step 3 with the same brief and a smaller scope. A pure-function fix gets smaller still: show the normal path still returns what it did, then one runnable check that fails on the old code.</p></div>
+  </div>
+</section>
+
+<section id="example">
+  <div class="num">04</div>
+  <div class="body">
+    <h2>Worked example: CES-5703, OTP config for motor flow 3</h2>
+    <p class="sub">One real task through all six phases, two repositories, delivered 2026-10-05 and merged 2026-10-08. Green dots are your messages; purple dots are what came back. Source: the task's HANDOFF.md, its OpenSpec change, and the verify report.</p>
+    <ul class="timeline">
+      <li class="you"><span class="who">you · phase 1</span><p>The ClickUp card "NMW: OTP config for all flow". The card asked for the per-package OTP toggle to work on every motor flow.</p></li>
+      <li><span class="who">Claude · phase 1</span><p>Survey of develop and open PRs showed flow 2 and free insurance already gated. One question went to the PO (2026-10-02); the answer "every flow that already asks for a phone number" narrowed the scope to flow 3 only, with 2o/3o and the online entry page out of scope. Result: one OpenSpec change at the monorepo root (two repos touched), with proposal, design, specs and a 21-item <code>tasks.md</code>.</p></li>
+      <li class="you"><span class="who">you · phase 2</span><p>A go-word on the proposal.</p></li>
+      <li><span class="who">Claude · phase 2</span><p>Two worktrees, <code>tqm-main-web/.worktrees/wt-3001</code> and <code>backoffice/.worktrees/wt-3002</code>, two implementer briefs (one per repo), backoffice-api untouched because the column, DTO and GraphQL field already existed. Apply-end: diff walked against the 21 tasks, lint and tsc green, weight line, HANDOFF.md.</p></li>
+      <li class="you"><span class="who">you · phase 3</span><p>Verify here.</p></li>
+      <li><span class="who">Claude · phase 3</span><p>Three servers brought up (backoffice-api on 4001, the two worktrees on 3001 and 3002), smoke-checked, test packages picked from the local database (one flow 3 package with the flag on, one off, one flow 2 for regression). Verifier rounds: internal template 8/8, caller template flow 2 and flow 3 scenarios C1 to C3 (the caller round needed a temporary local patch to reach the gate, reverted before commit), backoffice toggle B1 to B4. Report and PNGs under the task's verify directory. One decision surfaced for you: keep a defensive form guard or not (kept). One pre-existing bug found and parked as a separate ticket instead of fixed in scope.</p></li>
+      <li class="you"><span class="who">you · phase 4</span><p><code>/deliver-finished-task</code></p></li>
+      <li><span class="who">Claude · phase 4</span><p>Two PRs at 17:10: tqm-main-web #4950 and backoffice #889, cross-linked, assigned to you, mergeable in either order, bodies with Decisions and the verification record. You renamed the titles two days later to match the sprint tag; a <code>## Scope</code> section was added to both bodies after the PO rule was questioned, including a correction of one wrong claim in design.md.</p></li>
+      <li class="you"><span class="who">you · phase 5</span><p>Three approvals each from teammates, CI green, "merge".</p></li>
+      <li><span class="who">Claude · phase 5</span><p>Both merged into develop with merge commits on 2026-10-08, branches kept. The worktrees were already gone; the local demo now has to run from develop.</p></li>
+      <li class="you"><span class="who">you · phase 6</span><p>"handoff" (the demo and the OpenSpec archive were still pending).</p></li>
+      <li><span class="who">Claude · phase 6</span><p>HANDOFF.md with the delivered SHAs, the three launch entries, the test package ids, the OTP bypass, the demo walk-through, and an explicit "wait for the user's signal" rule for the next session so nothing starts or tears down on its own. Memory proposals covered one incident (a handoff directory deleted by a cleanup routine) and nothing about the feature itself.</p></li>
+    </ul>
+    <div class="note"><p><strong>What this shows.</strong> Scope was cut by a PO answer, not a guess. Each repo got its own worktree, brief and verify matrix. The pre-existing bug and the guard decision were surfaced, not silently handled. Close left a resume package that a cold session can act on.</p></div>
+  </div>
+</section>
+
+<p class="part">Part B · The machinery</p>
+
+<section id="agents">
+  <div class="num">05</div>
+  <div class="body prose">
+    <h2>How work is split: main session and subagents</h2>
+    <p class="sub">The main session is the orchestrator. Execution goes out by lane, on a model chosen by the shape of the work, with a brief that carries everything the agent needs and a budget it counts itself.</p>
+    <h3>Who does what</h3>
+    <p>The main session (the frontier model) owns scope, planning, every brief, the review of what a subagent returns, every decision, all git and PR actions, and the environment a subagent will use. It edits code itself only for 2 files / 30 lines or less, and only when no <code>tasks.md</code> exists. Everything else is dispatched by lane: research, verify, apply (implement), review.</p>
+    <h3>Two questions decide the model, said out loud in the routing line</h3>
+    <ol>
+      <li>Does the work have an adaptive loop: a running environment, tests to make green, a spec to interpret, "if X fails do Y" in the brief?</li>
+      <li>Would a wrong result be cheap to catch with one grep or one command?</li>
+    </ol>
+    <p><strong>Opus</strong> when the answer to 1 is yes or to 2 is no: verify, implement with a test loop or a multi-layer diff, why/architecture research, risky whole-branch review, escalation after one blocked result. <strong>Sonnet</strong> when the brief is mechanical and the result is re-checked in one command: locate-only research, tasks that already name the file and the value, TDD loops with the tests written first, reruns of a script that already passed. <strong>Haiku</strong> for pure runners. <strong>Fable</strong> only after Opus is blocked. "Needs judgment" is never a reason to keep work in the main session: it means the spec has a gap, so the spec gets fixed and the work still goes out.</p>
+    <h3>What every brief carries</h3>
+    <p>Proven facts (URLs, ports, ids, paths, how to load <code>.env</code>), a non-overlapping scope, a stop budget as a tool-call cap the agent counts itself (default 120, never minutes alone, because an agent cannot see its own turn count), the evidence path, and a 10-line return format. Subagents share the session's edit-gate arm, so implementers that touch repo files run in the foreground. A subagent never repairs the environment; it stops and reports, and the main session fixes and continues the same agent.</p>
+    <h3>After hand-back</h3>
+    <p>A ticked task is a claim: the main session walks <code>tasks.md</code> against the real diff hunks before any review or verify. Follow-ups that need context not yet on disk go back to the same agent; reruns of an existing script go to a new agent with the same brief, because a resumed agent drags every earlier round into each turn. One ledger row per hand-back, outcome judged against the code.</p>
+    <h3>Measured so far</h3>
+    <div class="stat">
+      <div><b>½ cost · ⅓ turns</b><span>verify on Opus vs the Sonnet baseline (trial 2026-09-23, orchestrator-trial-review/REPORT.md)</span></div>
+      <div><b>62 / $2.9</b><span>verify median turns / cost per round (band from the 2026-09-27 retro)</span></div>
+      <div><b>42 / $1.7</b><span>implement median turns / cost per round (same source)</span></div>
+      <div><b>0 of 75</b><span>Agent calls without an explicit model, week to 2026-10-04</span></div>
+      <div><b>41 / 34</b><span>Opus / Sonnet dispatches that week (workflow-reviews/2026-10-04.md)</span></div>
+    </div>
+    <p>Implement on Opus cost the same as Sonnet in two-thirds of the turns; short research cost twice as much but came back correct. The two runs that blew past the band (620 and 334 turns) were wrong-build environment misdiagnoses with no turn ceiling, which is where the tool-call cap came from. In the ledger for that week, apply on Sonnet had 13 rows, median 10 turns, 12 correct; apply on Opus had 6 rows, median 37.5 turns.</p>
+    <h3>Rejected on purpose</h3>
+    <p>Splitting agents by job role (FE dev / BE dev / tester) or by project. Research on 2026-10-08 found no vendor recommending it for subagents; every built-in splits by lane, and repo conventions already load from the working directory, so role bodies would only duplicate them. Pending: four lane agent definitions (verify, implement, research, tracking) designed 2026-10-08, waiting for the Sunday retro to ratify.</p>
+  </div>
+</section>
+
+<section id="gates">
+  <div class="num">06</div>
+  <div class="body">
+    <h2>Gates: what enforces the rules</h2>
+    <p class="sub">Four are hooks in <code>~/.claude/settings.json</code> that run before a tool call and can deny it; Claude cannot bypass or arm them. Three are rules Claude follows in the flow. Read as: when it fires, what happens, how you pass it, and the incident it came from.</p>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Gate</th><th>Fires on</th><th>Effect</th><th>Pass by</th><th>Why it exists</th></tr></thead>
+      <tbody>
+        <tr><td class="k">Edit gate<br><span class="mono" style="font-weight:400;font-size:12px">edit-gate-check.py</span></td><td>Edit, Write, NotebookEdit on any file inside a git work tree that is not gitignored. Scratch, memory and generated files are free.</td><td><span class="pill block">block</span> The ready diff is shown with "type apply". No second attempt in the same turn.</td><td>A go-word in your current message (one round), <code>arm session</code> until you say lock, or an approved plan. Words live in <code>edit-gate-words.txt</code>.</td><td>Edits used to happen on a question or on conversational momentum. Scope agreed 2026-07-09; loose go-word patterns rejected 2026-07-22 (strictness beats convenience). A scan of all sessions 2026-07 to 09-17 found 82 blocks in 34 sessions; 58 were source files with no go-word, the gate doing its job.</td></tr>
+        <tr><td class="k">Secret read gate<br><span class="mono" style="font-weight:400;font-size:12px">secret-read-gate.py</span></td><td>Read, Grep, Bash or context-mode calls touching <code>.env*</code>, key files, ssh keys, or bare <code>env</code> / <code>printenv</code>.</td><td><span class="pill deny">deny</span> A copy with every value rewritten to <code>&lt;masked:N&gt;</code> is offered instead. Fails closed; a self-test runs at session start.</td><td>Read the masked copy. To use a value unseen: <code>envrun &lt;dir&gt; -- sh -c '…"$KEY"…'</code>, which masks loaded values in the output.</td><td>A secret value was seen in tool output on 2026-08-17; the gate landed the next day. Key names are enough to debug a config; values never need to be in the transcript. It fails closed: a crash in the script also denies.</td></tr>
+        <tr><td class="k">Git guard<br><span class="mono" style="font-weight:400;font-size:12px">git-guard.py</span></td><td>Bash commands that run git.</td><td><span class="pill deny">deny</span> <code>push --force*</code> and <code>--no-verify</code>. <span class="pill ask">ask</span> any push to main or master.</td><td>Claude hands you the exact <code>--force-with-lease</code> command when a plan rewrites a pushed branch, or keeps history append-only. Direct pushes to protected branches need per-instance permission.</td><td>Replaced the guardrails of a disabled harness plugin on 2026-09-29. A rewrite of pushed history cannot be undone by the next session; the rule is to plan append-only history or hand the force-push to a human.</td></tr>
+        <tr><td class="k">Dev-server gate<br><span class="mono" style="font-weight:400;font-size:12px">dev-server-gate.py</span></td><td><code>pnpm dev</code>, <code>start:dev</code>, <code>next dev</code> in Bash.</td><td><span class="pill deny">deny</span> when the port already listens. <span class="pill ask">ask</span> otherwise.</td><td>Servers start through named <code>launch.json</code> entries (one permanent entry per worktree port), never ad hoc.</td><td><code>launch.json</code> was the single most-blocked file in the 2026-07 to 09-17 scan (13 blocks in 9 sessions), each time a verify wanted a per-run entry. Two permanent entries fixed it. The machine has 16 GB of RAM, so servers are started on purpose, not by every agent that wants one.</td></tr>
+        <tr><td class="k">Smoke gate</td><td>Before any verify dispatch.</td><td>No dispatch until the served code is proven to be the code under test.</td><td>The <code>lsof</code> cwd check and the <code>.next</code> grep, pasted into the brief.</td><td>"A 200 from the wrong branch cost two verify rounds" (2026-09-04, sharpened 09-08). Later a <code>.next</code> built by another session's server kept passing with that server's port baked in, and only failed when it stopped.</td></tr>
+        <tr><td class="k">Weight gate</td><td>Apply-end, one line.</td><td>Heavy changes get the code review before verify; light ones go straight to verify.</td><td>Your one-word override of the weight.</td><td>A one-file QA defect round (2026-09-22, PR #4889) got a full review plus the delivery skill, which slowed a change that should have merged in minutes. Small follow-ups ship fast so QA feedback comes back fast; whole-flow rewrites get the review first.</td></tr>
+        <tr><td class="k">Delivery gate</td><td><code>/deliver-finished-task</code>, user-invoked only.</td><td>Stops on red lint/tsc, no verify yet, a conflict, or a needed force-push. Otherwise runs review, commit, push, PR without re-asking.</td><td>One go for the chain; answer the single batched question if one comes.</td><td>Two failures in opposite directions: a PR opened on intent stated earlier in a plan message (2026-09-14), then a delivery that stopped six times inside one chain because each git step had grown its own go-word (2026-09-24). One gate, one go, replaced both on 2026-09-26.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="note you"><p><strong>Two things you must not expect the gates to catch.</strong> Side effects outside the repo (scheduled tasks, database writes, MCP writes) and the "answer before asking" rule are not hook-enforced; they rest on the rule file alone. Claude is told to state the environment and the statement before any database write and the exact target before any delete.</p></div>
+  </div>
+</section>
+
+<section id="sidecars">
+  <div class="num">07</div>
+  <div class="body">
+    <h2>Always on: not in the flow, checked every turn</h2>
+    <p class="sub">These never appear as a phase. They run on every message or at every unit boundary (apply-end, verify-end, PR delivered, close), whatever phase the task is in. Each one is a side channel that reports and waits for you; none of them changes anything on its own.</p>
+    <div class="cards">
+      <div class="card"><span class="when">every turn · silent under 180k</span><h3>Context meter</h3><p>Usage is measured at the start of every turn. Under 180k nothing is said. From 180k, one line appears only at a unit boundary or the first turn past each new 50k step: the measured number, whether the next unit is related, and a recommendation to stay or move to a new session. You decide; Claude follows without re-arguing.</p></div>
+      <div class="card"><span class="when">unit boundaries · needs your confirm</span><h3>Memory candidates</h3><p>At apply-end, verify-end and close, Claude proposes what is worth remembering for future workflow, starting with "checked existing memory: none / see X". "Nothing worth saving" is a valid proposal. Nothing is written until you confirm. After a PR merges, Claude proposes trimming that task's memory to surviving gotchas.</p></div>
+      <div class="card"><span class="when">every execution moment</span><h3>Routing line</h3><p>The first line of any reply that starts work says who does it: <code>→ delegate: Opus (verify — adaptive loop)</code> or <code>→ self: &lt;reason&gt;</code>. The rule behind it is in section 05. The model is always pinned.</p></div>
+      <div class="card"><span class="when">every subagent hand-back</span><h3>Dispatch ledger</h3><p>One row per hand-back: model, lane, weight, turns, cost, wall time, and an outcome (correct / partial / blocked / wrong) judged against the code, never taken from the agent's own claim. The Sunday retro reads this file; a dispatch missing from it is invisible.</p></div>
+      <div class="card"><span class="when">every unit boundary · silent</span><h3>HANDOFF.md</h3><p>Rewritten at every unit boundary with one line in chat. It is the insurance against a dead session. The ready-to-paste resume prompt is written only when you ask for a handoff, never offered unprompted.</p></div>
+      <div class="card"><span class="when">every message · hooks</span><h3>Prompt hooks</h3><p>Three scripts run on every message you send: the go-word check that arms the edit gate for one round, a git-state line injected after a gap of 10 minutes or more, and a terse-reply rule matched to the language of your message. None of them blocks; they shape the turn before Claude reads it.</p></div>
+      <div class="card"><span class="when">apply-end · one line</span><h3>Weight line</h3><p><code>weight: light|heavy — &lt;files, shared consumers, contract, regression scope&gt;</code>. Light goes straight to verify. Heavy runs the code review before verify, because a finding fixed after verify voids the verify. You can override the weight in one word.</p></div>
+      <div class="card"><span class="when">session close · on a signal</span><h3>Retro offer</h3><p>When a session shows a signal (the same correction twice, a fact that took several tool calls to find, an environment fixed by hand, cost above the usual band), Claude offers a quick retro. How that works is section 08.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="retro">
+  <div class="num">08</div>
+  <div class="body prose">
+    <h2>The weekly retro: how the workflow changes itself</h2>
+    <p class="sub">Three loops, each one read-only. Nothing changes without a go-word in a live session, and every change lands with the date and the incident behind it.</p>
+    <ol>
+      <li><strong>Quick retro, per session, on a signal.</strong> The same correction twice, a fact that took several tool calls to find, an environment fixed by hand, cost above the band. <code>retro-run</code> dispatches a read-only Opus reader (Read, Grep, Glob only) over one transcript with a 7-axis rubric: navigation, automated checks, standards, steering size, tool economy, information access, delegation. Each candidate is classed mechanical (a hook or lint can catch it), judgement (needs a rule), or no-op (a rule nobody needed, candidate to delete). Report to <code>workflow-reviews/quick/</code>, one ledger row, nothing applied.</li>
+      <li><strong>Sunday retro, 21:30, scheduled.</strong> A script digests every transcript of the week; one Sonnet analyst per batch; ledger numbers per lane and model (which model was cheaper per correct result, and whether that agrees with the routing rule); parked items from <code>agenda.md</code>; the week's quick retros as evidence. One report, <code>workflow-reviews/YYYY-MM-DD.md</code>, with a fixed numbers table against the previous week and the sprint so far: sessions, human turns, real gate blocks and same-turn retries, sessions with an Agent call, Agent calls without a model, share of messages in long sessions. A finding needs two or more occurrences unless the user parked it on purpose. Report only.</li>
+      <li><strong>Decision, in a live session.</strong> The user picks items with a go-word. Destination by class: mechanical goes to a hook or lint; judgement goes to <code>CLAUDE.md</code> or the repo's reviewer rules; our-workflow questions go to <code>agenda.md</code> for the next Sunday. Every decision lands in <code>working-agreement-history.md</code> with the date and the incident, so the rule file stays rules-only and the reasons survive.</li>
+    </ol>
+    <h3>What came out of it recently</h3>
+    <ul>
+      <li>One delivery gate instead of three (2026-09-26).</li>
+      <li>Side effects outside the repo need the same go as edits (2026-10-05).</li>
+      <li>Wayfinder batches low-stakes gaps into one list with a recommendation each (2026-10-05).</li>
+      <li><code>retro-run</code> itself, after a third-party retro skill turned out to scan transcripts in the main session (2026-10-07).</li>
+      <li>The context line now reports a measured number at boundaries instead of a guess (2026-10-07).</li>
+    </ul>
+    <h3>Last report, 2026-10-04</h3>
+    <div class="stat">
+      <div><b>32</b><span>sessions in the week</span></div>
+      <div><b>546</b><span>human turns</span></div>
+      <div><b>6</b><span>real gate blocks, 0 same-turn retries</span></div>
+      <div><b>16 / 32</b><span>sessions with an Agent call</span></div>
+      <div><b>76%</b><span>of assistant messages inside 13 long sessions</span></div>
+    </div>
+    <p>Source: <code>workflow-reviews/2026-10-04.md</code>, numbers measured by <code>session-digest.py</code>. Known failure mode of the Sunday run: parallel permission prompts dismiss each other in an unattended session, so batch agents are re-dispatched one at a time.</p>
+  </div>
+</section>
+
+<p class="part">Part C · Running it yourself</p>
+
+<section id="deps">
+  <div class="num">09</div>
+  <div class="body">
+    <h2>Dependencies: what you need to run this</h2>
+    <p class="sub">Split by what breaks without it. The required set is small; most of the behaviour comes from the rule file and seven Python scripts.</p>
+    <div class="cols3">
+      <div>
+        <h4>Required</h4>
+        <ul>
+          <li><strong>Claude Code</strong>, desktop app or CLI, with the rule file at <code>~/.claude/CLAUDE.md</code>.</li>
+          <li><strong>python3</strong> for the hook scripts in <code>~/.claude/scripts/</code>, wired in <code>~/.claude/settings.json</code>.</li>
+          <li><strong>git</strong> and the <strong>gh</strong> CLI: PR create, edit, assign, thread replies.</li>
+          <li><strong>pnpm</strong> for every repo; <strong>lsof</strong> for the smoke check and the dev-server gate.</li>
+          <li><strong>Playwright</strong> with <code>channel: 'chrome'</code> for verify screenshots.</li>
+          <li><strong>launch.json</strong> entries per worktree port (<code>tqm-main-web-wt-3001</code>, <code>-wt-3002</code>).</li>
+          <li><strong>envrun</strong> (ships with the scripts) to use <code>.env</code> values without reading them.</li>
+        </ul>
+      </div>
+      <div>
+        <h4>Optional plugins (installed here)</h4>
+        <ul>
+          <li><strong>superpowers</strong>: brainstorming, TDD, systematic debugging, plan execution.</li>
+          <li><strong>ponytail</strong>: the "laziest solution that works" stance on every code task.</li>
+          <li><strong>context-mode</strong>: large tool outputs kept out of context. Caveat: it truncates big Bash output and blocks curl inconsistently.</li>
+          <li><strong>claude-mem</strong>: cross-session search of past work.</li>
+          <li><strong>serena</strong>: symbol-level code navigation.</li>
+          <li><strong>pordee / caveman</strong>: terse replies in Thai or English.</li>
+          <li><strong>lowfat</strong> (Homebrew): trims git/ls/find output before it reaches Claude.</li>
+        </ul>
+      </div>
+      <div>
+        <h4>Skills and connectors</h4>
+        <ul>
+          <li>Own skills in <code>~/.claude/skills/</code>: <code>deliver-finished-task</code>, <code>verify</code>, <code>review-before-deliver</code>, <code>retro-run</code>, <code>handoff</code>, <code>fix-ui-defects</code>, <code>share-local-demo</code>, PR listing and triage.</li>
+          <li>The skills-CLI set linked from <code>~/.agents/skills</code>: wayfinder, grilling, pr-review, tdd, research.</li>
+          <li><strong>OpenSpec</strong> (<code>opsx:*</code>) in each repo for propose / apply / archive.</li>
+          <li>MCP connectors: <strong>ClickUp</strong> (cards, checklists), <strong>Figma</strong> (frames, assets), <strong>Slack</strong> (threads). GitHub goes through <code>gh</code>.</li>
+          <li>The repo-side <code>.claude/</code> in tqm-main-web: launch entries, repo skills, the code-reviewer rules.</li>
+          <li>The Sunday retro: a scheduled task plus <code>session-digest.py</code> and the batch prompt in <code>~/.claude/scripts/</code>; the <code>retro-reader</code> agent definition in <code>~/.claude/agents/</code>.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="export">
+  <div class="num">10</div>
+  <div class="body">
+    <h2>What can be shared, and what cannot</h2>
+    <p class="sub">The common worry is that the workflow lives in memory. Measured, it does not: the behaviour is in the rule file, the hooks and the skills, all of which are files. Memory holds gotchas and calibration, which is exactly the part that should not travel.</p>
+    <div class="stat">
+      <div><b>86</b><span>lines in the rule file (wc -l)</span></div>
+      <div><b>7</b><span>hook scripts (settings.json)</span></div>
+      <div><b>14</b><span>own skill directories</span></div>
+      <div><b>6</b><span>files with a hardcoded home path (grep)</span></div>
+      <div><b>75</b><span>memory files: 36 feedback, 30 project, 6 reference, 2 user</span></div>
+    </div>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th style="width:18%">Layer</th><th>What it holds</th><th>Examples</th><th>How it travels</th></tr></thead>
+      <tbody>
+        <tr><td class="k">Generic engine</td><td>The whole flow, usable by anyone with no TQM in it: gates, sidecar hooks, orchestrator rules, retro, handoff, and a delivery chain that reads a small per-repo config.</td><td>All 9 hook scripts (0 TQM references), the editing / orchestrator / tooling rules (30 rules, 0 TQM mentions), verify / review / deliver once their TQM values move to config.</td><td>Repo <code>tstack-workflow</code>, plugins <code>tstack-core</code> and <code>tstack-delivery</code>. Install: marketplace add, then plugin install. Can be public.</td></tr>
+        <tr><td class="k">Team adapter</td><td>How this team works, nothing more.</td><td>Branch policy (qa2 never to main, hotfix twin PRs), PR title scheme from the ClickUp sprint tag, acceptance criteria from the card's checklist, assignee, Thai bot replies, org-bound skills (share-local-demo, PR listing).</td><td>Private repo <code>tstack-tqm</code>, one plugin. Depends on the engine; its session-start hook warns when the engine is missing. Per-repo values live in each product repo's <code>.claude/workflow.json</code>.</td></tr>
+        <tr><td class="k">Stays here</td><td>Facts about one machine and one history.</td><td>The 75 memory files, the ledger, handoffs, the claude-mem database, the incident history behind each rule, the Thai go-word list.</td><td>Not exported. Each person's memory regrows from their own corrections; go-words are per person in the plugin's data directory.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <h3>Order of work</h3>
+    <ul>
+      <li>This page, shared with the team to read. No install needed.</li>
+      <li>The engine first: move the TQM values out of verify / review / deliver into a config contract, move hook state to the plugin data directory, confirm that a plugin hook can deny a tool call.</li>
+      <li>The adapter: mostly a move of files, plus one <code>workflow.json</code> committed per product repo.</li>
+      <li>Dogfood on the author's machine with both installed and the duplicates removed, then one teammate on a clean machine.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="glossary">
+  <div class="num">11</div>
+  <div class="body">
+    <h2>Glossary</h2>
+    <dl class="gloss">
+      <dt>go-word</dt><dd>A word in your current message that permits file edits for one round: apply, go ahead, fix it, ทำเลย, แก้เลย and the others in <code>edit-gate-words.txt</code>. Earlier messages never count.</dd>
+      <dt>unit boundary</dt><dd>A point where one unit of work ends and you decide the next: apply-end, verify-end, propose-end, PR delivered, session close. Sidecars report only here.</dd>
+      <dt>weight</dt><dd>light or heavy, said in one line at apply-end. Heavy means whole-flow change, wide impact, or a shared component with many consumers. Heavy gets the code review before verify.</dd>
+      <dt>worktree port</dt><dd>A private git worktree at <code>.worktrees/wt-&lt;port&gt;</code> served by a permanent launch entry on that port. The main checkout is never served or committed from by a session.</dd>
+      <dt>lane</dt><dd>The kind of work a dispatch does: research, verify, apply, review. The ledger and the routing rule are organised by lane, not by job role.</dd>
+      <dt>brief</dt><dd>The instructions handed to a subagent: proven facts, scope, evidence path, a tool-call budget it counts itself, and the model. Written by the main session; reusable for reruns.</dd>
+      <dt>hand-back</dt><dd>The moment a subagent returns. Its claims are checked against the code before anything is believed, and one ledger row is written.</dd>
+      <dt>smoke check</dt><dd>Proof, before dispatch, that the running server serves the worktree under test: process cwd, a feature symbol in its build output, no foreign port in its chunks.</dd>
+      <dt>routing line</dt><dd>The first line of a reply that starts execution: who does the work and why, with the model named.</dd>
+      <dt>sidecar</dt><dd>Anything that runs every turn or at every boundary without being a phase: context meter, memory proposals, ledger, HANDOFF.md, prompt hooks.</dd>
+      <dt>ledger</dt><dd><code>~/.claude/dispatch-ledger.tsv</code>: one row per subagent hand-back. The Sunday retro's only source for delegation numbers.</dd>
+    </dl>
+  </div>
+</section>
+
+<footer>Source of record: <code>~/.claude/CLAUDE.md</code> (rules only) and <code>~/.claude/working-agreement-history.md</code> (the incidents behind them). Inventory numbers measured on 2026-10-09 with <code>wc -l</code>, <code>grep -rl</code> and a read of <code>settings.json</code>; delegation and retro numbers from the files named beside them. Project-wide conventions live in each repository's own CLAUDE.md or AGENTS.md.</footer>
+</div>
