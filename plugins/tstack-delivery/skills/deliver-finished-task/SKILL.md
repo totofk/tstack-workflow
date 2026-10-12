@@ -18,7 +18,7 @@ One command that finishes the work: review → commit → push → PR, or push +
 
 ## Required Defaults
 
-- Base branch: derive it — the branch's upstream, its prefix (`hotfix/*` → `main`, else `workflow-config base`), the plan/handoff, or the user's message. Ask only when none of these settle it, and fold that into the single batched question.
+- Base branch: settled only by an existing PR's base, the branch's upstream, the plan/handoff, or the user's message. The branch prefix alone never settles it (a `features/*` branch can legitimately target a release branch) — anything short of settled goes into the single batched question with the candidates listed (`workflow-config base` / `main` / the team adapter's release branches), never a silent default.
 
 ## Branch Naming Rules
 

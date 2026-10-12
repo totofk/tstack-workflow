@@ -9,7 +9,8 @@ never values. Any crash in this script must also block — the settings.json
 wrapper is `python3 … || exit 2` and main() catches everything into exit 2.
 
 Covers: Read, Grep (path), Bash (command text), context-mode MCP execute
-tools (whole tool_input). Also denies bare `env` / `printenv` dumps.
+tools (whole tool_input). Also denies bare `env` / `printenv` dumps. A bare
+`ln -s` / `cp` of a secret file is allowed because it does not print values.
 
 Run with --selftest to assert the gate still behaves (wired into SessionStart).
 """
@@ -18,6 +19,9 @@ import hashlib, json, os, re, sys, tempfile
 MASK_ROOT = os.path.join(tempfile.gettempdir(), "claude-masked")
 PUBLIC_PREFIX = "NEXT_PUBLIC_"  # shipped to the browser anyway — never masked
 ENVRUN = re.compile(r"^\s*(?:\S*/)?envrun\s")  # bin/envrun: uses values, scrubs output
+# a link/copy never prints the file's content: exactly one `[cd p &&] ln -s|cp src dst`, no /dev/ target
+_ARG = r"[^\s|;&<>`$()]+"
+LINK_COPY = re.compile(r"^\s*(?:cd\s+" + _ARG + r"\s+&&\s+)?(?:ln\s+-[sfn]+|cp(?:\s+-[A-Za-z]+)*)\s+" + _ARG + r"\s+(?!/dev/)" + _ARG + r"\s*$")
 ALLOWED_ENV_SUFFIXES = (".example", ".sample", ".template", ".dist")
 
 _PATH = r"[^\s'\"|;&<>()=]*"
@@ -112,6 +116,8 @@ def decide(d: dict):
     else:
         return None
 
+    if tool == "Bash" and LINK_COPY.match(text):
+        return None
     hits = resolve_hits(text, cwd)
     if hits:
         copies = [write_masked_copy(h) for h in hits if os.path.isabs(h) and os.path.isfile(h)]
@@ -160,6 +166,12 @@ def selftest() -> int:
     assert run("Bash", {"command": "git status"}) is None
     assert run("Bash", {"command": "env FOO=1 pnpm test"}) is None
     assert run("Bash", {"command": "ls -la src/environment"}) is None
+    assert run("Bash", {"command": "ln -s ../../.env .env"}) is None   # bare link/copy allowed
+    assert run("Bash", {"command": "cd /tmp/wt && ln -sfn ../../.env .env"}) is None
+    assert run("Bash", {"command": "cp .env .env.local"}) is None
+    assert run("Bash", {"command": "cp -p ../.env ./.env"}) is None
+    assert run("Bash", {"command": "ln -s ../../.env .env && cat .env"})
+    assert run("Bash", {"command": "cp .env /dev/stdout"})
     assert run("mcp__plugin_context-mode_context-mode__ctx_execute", {"language": "shell", "code": "cat .env"})
     assert run("mcp__plugin_context-mode_context-mode__ctx_execute", {"language": "shell", "code": "ls src"}) is None
     assert run("Edit", {"file_path": env}) is None             # edit-gate owns writes

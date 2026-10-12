@@ -23,8 +23,8 @@ The review rules are never hard-coded here. They are always sourced from the rep
    - Large diffs piped through Bash get silently truncated here (`git diff … | grep` returned 185 of ~1,500 lines once). Run checklist greps on the working-tree files and check the line count against `git diff --stat` before trusting an all-zero result.
 
 2. Pick the rule source for THIS repo (decision = does the file exist):
-   - `workflow-config reviewer` names a skill (e.g. `code-reviewer`) → **if `<repo>/.claude/skills/<that name>/SKILL.md` exists → Path A.**
-   - No `reviewer` configured → look for exactly one `<repo>/.claude/skills/*reviewer*/SKILL.md`; found → Path A.
+   - `workflow-config reviewer` names a skill (e.g. `code-reviewer`) → look for `<repo>/.claude/skills/<that name>/SKILL.md`, then `<repo>/.claude/agents/<that name>/AGENT.md`, then `<repo>/.claude/agents/<that name>.md`; **first hit wins → Path A.**
+   - No `reviewer` configured → look for exactly one `*reviewer*` in the same three locations (`<repo>/.claude/skills/*reviewer*/SKILL.md`, `<repo>/.claude/agents/*reviewer*/AGENT.md`, `<repo>/.claude/agents/*reviewer*.md`); found → Path A.
    - **Otherwise → Path B.**
 
 3. **Path A — repo has its own reviewer.** Do NOT invoke that skill (it commits/pushes/PRs). Instead, read it as the rule source:

@@ -37,13 +37,15 @@ No `version` is set on purpose, so an update tracks the latest commit.
 | Piece | Kind | What it does |
 |---|---|---|
 | Edit gate | PreToolUse hook on Edit / Write / NotebookEdit | Blocks edits to files inside a git work tree (not gitignored) unless your current message contains a go-word, you said `arm session`, or you approved a plan. Scratch, memory and generated files are free. |
-| Secret read gate | PreToolUse hook on Read / Grep / Bash | Denies reads of `.env*`, key files, ssh keys and bare `env` / `printenv`; offers a copy with every value masked. Fails closed. Self-test at session start. |
+| Secret read gate | PreToolUse hook on Read / Grep / Bash | Denies reads of `.env*`, key files, ssh keys and bare `env` / `printenv` (a bare `ln -s` / `cp` of a secret file is allowed because it does not print values); offers a copy with every value masked. Fails closed. Self-test at session start. |
 | Git guard | PreToolUse hook on Bash | Denies `git push --force*` and `--no-verify`; asks before any push to `main` / `master`. |
 | Dev-server gate | PreToolUse hook on Bash | Denies `pnpm|npm|yarn|bun dev`, `start:dev`, `next dev` when the port already listens; asks otherwise. Servers start from named launch entries. |
 | Prompt hooks | UserPromptSubmit | Go-word check (arms the edit gate for one round), a git-state line after a gap of 10 minutes or more, a terse-reply rule matched to the language of your message (Thai or English). |
 | Plan arm | PostToolUse on ExitPlanMode | An approved plan arms the edit gate for one round. |
 | Rules | SessionStart | Five short rule files load as context: editing and approval, verify → commit → PR, orchestrator and subagents, memory and sessions, tooling gotchas. See `plugins/tstack-core/rules/`. |
 | `envrun` | `bin/` | Runs a command with a `.env` loaded into the child only and every loaded value masked in the output: `envrun <dir> -- sh -c '…"$KEY"…'`. |
+
+The shipped list (`plugins/tstack-core/scripts/edit-gate-words.txt`) carries English and Thai defaults (`apply`, `go ahead`, `fix it`, `ทำเลย`, `แก้เลย`, …); teams in other languages copy and replace it.
 
 Your own go-word list: copy `plugins/tstack-core/scripts/edit-gate-words.txt` to
 `$CLAUDE_PLUGIN_DATA/edit-gate-words.txt` (the hook prints the path in its block message) and edit it.

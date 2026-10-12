@@ -30,9 +30,9 @@ then `preview_start` with the entry name from `workflow-config launch.entry` (`{
 |---|---|
 | Previous round | `ls ~/.claude/handoffs/<task>/verify/` — existing scripts/report are listed in the brief for reuse |
 | Served tree = code under test | `lsof -a -p <next-server pid> -d cwd -Fn` = the worktree; `git -C <worktree> rev-parse --short HEAD` = the sha under test |
-| Frontend server | `curl -s -o /dev/null -w '%{http_code}' http://localhost:<port>/<entry-page>` → `200` (compiles the page so the chunk greps below are meaningful) |
+| Frontend server | `python3 <task evidence dir>/smoke.py`, where smoke.py does `urllib.request.urlopen('http://localhost:<port>/<entry-page>').status` → `200` (compiles the page so the chunk greps below are meaningful); `curl`/`wget` are refused by the shell gate; use `python3` urllib or node, saved as a script in the task's verify directory |
 | Bundle sanity | `grep -rl '<feature symbol>' <worktree>/.next/static/chunks` ≥ 1 file; `grep -rl 'localhost:<any other port>' …/chunks` = 0 files (a stale/foreign build output sends `/api/*` to another session's server and passes silently while that server is up — see the delivery rules, "Verify serves a private worktree") |
-| Worktree env | served via an `envrun` launch entry (loads the main repo `.env`); never copy or symlink `.env` from Claude |
+| Worktree env | the worktree gets the main repo's `.env` by `ln -s ../../.env .env` (the secret gate allows a bare link/copy); port-specific overrides go in `.env.local`, listed in `.git/info/exclude` with the Edit tool (shell appends to that file are denied) |
 | Generated code | the repo's code generation (GraphQL codegen, Prisma generate, OpenAPI types) run after any schema change |
 | Backend branch | checkout has the fields under test (`grep` the field in the schema) and every port in `launch.ports` is in the CORS allowlist |
 | Test data | one read-only query proves a row matching the scenario exists; note ids. Every page named in the brief is opened in a real browser (pane or Playwright) and its FINAL URL + rendered content checked — HTTP 200 does not rule out a client-side redirect or a spinner that waits for params/login (2026-09-29: `/privacy`, `/claim`, `/rns` all passed the 200 smoke and blocked the verifier) |
