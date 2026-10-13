@@ -5,7 +5,9 @@ Usage:
   workflow-config            # full merged JSON
   workflow-config base       # one value (dotted path: launch.entry, title.feature)
 
-Reads <git toplevel>/.claude/workflow.json (or ./.claude/workflow.json outside git).
+Reads <git toplevel>/.claude/workflow.json (or ./.claude/workflow.json outside git). When that
+file is absent, falls back to workflows/<repo>.json shipped by any installed plugin (a team
+adapter), <repo> being the origin repository name, so worktrees resolve to the same file.
 Missing file or key = the default below. Unknown keys pass through untouched.
 """
 import json
@@ -39,6 +41,36 @@ def repo_root():
     return os.getcwd()
 
 
+def repo_slug():
+    """Repository name from the origin URL (git@host:owner/name.git or https://host/owner/name)."""
+    try:
+        r = subprocess.run(["git", "remote", "get-url", "origin"], capture_output=True, text=True, timeout=5)
+        url = r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:
+        url = ""
+    if not url:
+        return None
+    name = url.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+    return name[:-4] if name.endswith(".git") else name
+
+
+def plugin_config_path(slug):
+    """<installPath>/workflows/<slug>.json of the first installed plugin that ships one."""
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+    reg = os.path.join(config_dir, "plugins", "installed_plugins.json")
+    try:
+        with open(reg, encoding="utf-8") as f:
+            plugins = json.load(f).get("plugins", {})
+    except (OSError, ValueError):
+        return None
+    for entries in plugins.values():
+        for entry in entries if isinstance(entries, list) else []:
+            candidate = os.path.join(entry.get("installPath", ""), "workflows", f"{slug}.json")
+            if os.path.isfile(candidate):
+                return candidate
+    return None
+
+
 def merge(base, over):
     out = dict(base)
     for k, v in (over or {}).items():
@@ -48,6 +80,10 @@ def merge(base, over):
 
 def main():
     path = os.path.join(repo_root(), ".claude", "workflow.json")
+    if not os.path.isfile(path):
+        slug = repo_slug()
+        alt = plugin_config_path(slug) if slug else None
+        path = alt or path
     user = {}
     if os.path.isfile(path):
         try:

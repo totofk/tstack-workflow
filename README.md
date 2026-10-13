@@ -92,7 +92,9 @@ to `<repo>/.claude/workflow.json` and change what differs:
 
 Everything here is generic. A team keeps its own conventions (branch policy, PR naming from a ticket
 system, who to assign, which review bots respond) in a separate plugin that installs on top of this
-one and in each repository's `.claude/workflow.json`.
+one and in each repository's `.claude/workflow.json`. An adapter may instead ship
+`workflows/<repo>.json` (keyed by the origin repository name); `workflow-config` falls back to it
+when the repository has no `.claude/workflow.json` of its own.
 
 ## Layout
 
