@@ -1,7 +1,7 @@
 ---
 name: review-before-deliver
 description: >-
-  Code review for the current repo's diff before delivery — never commits, pushes, or opens a PR, but DOES auto-apply low-cost correctness fixes to the working tree. Detects the repo, reuses that repo's own review rules (its reviewer skill named by `reviewer` in .claude/workflow.json, or its CLAUDE.md + framework best-practices), applies cheap+high-confidence fixes, reports everything, and stops. Use before delivering finished work, or as the review gate inside deliver-finished-task. Triggers: "review before deliver", "review only", "review my diff", "check before I push". Run it at apply-end (after lint/tsc, BEFORE verify) so findings can still be fixed without voiding a verify.
+  Code review for the current repo's diff before delivery — never commits, pushes, or opens a PR, but DOES auto-apply low-cost correctness fixes to the working tree. Detects the repo, reuses that repo's own review rules (its reviewer skill named by `reviewer` in `workflow-config`, or its AGENTS.md / CLAUDE.md + framework best-practices), applies cheap+high-confidence fixes, reports everything, and stops. Use before delivering finished work, or as the review gate inside deliver-finished-task. Triggers: "review before deliver", "review only", "review my diff", "check before I push". Run it at apply-end (after lint/tsc, BEFORE verify) so findings can still be fixed without voiding a verify.
 ---
 
 # Review Before Deliver
@@ -33,7 +33,7 @@ The review rules are never hard-coded here. They are always sourced from the rep
    - Review the diff against those rules.
 
 4. **Path B — no reviewer in this repo.** Source the rules live from the repo itself:
-   - Read `<repo>/CLAUDE.md` (and the monorepo root `CLAUDE.md`) for that repo's conventions — this is the primary criterion.
+   - Read `<repo>/AGENTS.md`, else `<repo>/CLAUDE.md` (and the monorepo root `CLAUDE.md`) for that repo's conventions — this is the primary criterion.
    - Read `package.json` to identify the framework (Next.js / NestJS / Bun-Hono / etc.) and apply the matching central best-practice skill if one fits (`vercel-react-best-practices` for Next, `nestjs-best-practices` for Nest).
    - Review the diff against those.
 
@@ -52,7 +52,7 @@ Two limits on that override:
 - The edit-gate hook is mechanical and does not read this file. If an auto-fix is blocked, do not retry or route around it — list the fix under "Blocking"/"Suggestions" with the ready diff and let the user arm the gate.
 - If a verify pass already ran on this code, do NOT auto-fix anything: any edit voids the verify. Report the finding with its cost ("fixing this means re-running the verify matrix") and let the user choose.
 
-Rule-source conflicts: when the repo's reviewer skill disagrees with the repo's `CLAUDE.md` (stale i18n paths, `Co-Authored-By` instructions), `CLAUDE.md` and the user's global rules win — note the stale rule in the report.
+Rule-source conflicts: when the repo's reviewer skill disagrees with the repo's `AGENTS.md` / `CLAUDE.md` (stale i18n paths, `Co-Authored-By` instructions), that file and the user's global rules win — note the stale rule in the report.
 
 **Auto-apply a finding only when ALL hold:**
 - It came from THIS review (not a new idea you went looking for).
@@ -69,7 +69,7 @@ Rule-source conflicts: when the repo's reviewer skill disagrees with the repo's 
 - Touches a security / money / data-loss path.
 - Reaches outside the current diff's scope.
 - Is stylistic / debatable / preference.
-- Is a **verbose / rambling comment** (multi-line where one line would do, narrates decision history, restates the code). Flag it under Suggestions with a tighter rewrite and let the user decide — repo comment policy (e.g. CLAUDE.md: short, explain WHY not WHAT) is the yardstick. Exception: a mode-prefix leak is objective — auto-fix that per the gate above.
+- Is a **verbose / rambling comment** (multi-line where one line would do, narrates decision history, restates the code). Flag it under Suggestions with a tighter rewrite and let the user decide — repo comment policy (e.g. AGENTS.md / CLAUDE.md: short, explain WHY not WHAT) is the yardstick. Exception: a mode-prefix leak is objective — auto-fix that per the gate above.
 
 After auto-fixing, re-check that the change still typechecks/lints if a quick check is available. This skill applies fixes and reports — it does not deliver. The user decides what to do with the rest.
 
@@ -78,7 +78,7 @@ After auto-fixing, re-check that the change still typechecks/lints if a quick ch
 ```markdown
 ## Review Before Deliver: [repo]
 
-Rule source: [Path A — repo reviewer | Path B — CLAUDE.md + <framework> best practices]
+Rule source: [Path A — repo reviewer | Path B — AGENTS.md / CLAUDE.md + <framework> best practices]
 
 ### Verdict
 [✅ Ready to deliver | ⚠️ Fix blocking issues first]

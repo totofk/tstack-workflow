@@ -54,7 +54,8 @@ Latin words match whole-word, case-insensitive; Thai matches as a substring; `re
 ### tstack-delivery
 
 Three skills that run the verify → review → deliver part of the flow. Team-specific values are read
-from the repository's `.claude/workflow.json`; without the file the defaults apply.
+from the repository's `.agents/workflow.json` (shared, committed), else `.claude/workflow.json`
+(personal, untracked), else a team adapter's `workflows/<repo>.json`; without any, the defaults apply.
 
 | Skill | Invoked by | What it does |
 |---|---|---|
@@ -64,7 +65,7 @@ from the repository's `.claude/workflow.json`; without the file the defaults app
 
 `workflow-config` (on the shell PATH while the plugin is enabled) prints the merged config;
 `workflow-config title.feature` prints one value. Copy [workflow.example.json](workflow.example.json)
-to `<repo>/.claude/workflow.json` and change what differs:
+to `<repo>/.agents/workflow.json` and change what differs:
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -92,9 +93,10 @@ to `<repo>/.claude/workflow.json` and change what differs:
 
 Everything here is generic. A team keeps its own conventions (branch policy, PR naming from a ticket
 system, who to assign, which review bots respond) in a separate plugin that installs on top of this
-one and in each repository's `.claude/workflow.json`. An adapter may instead ship
-`workflows/<repo>.json` (keyed by the origin repository name); `workflow-config` falls back to it
-when the repository has no `.claude/workflow.json` of its own.
+one, and either in each repository's `.agents/workflow.json` or, when product repositories are to
+carry nothing tool-specific, in the adapter's own `workflows/<repo>.json` (keyed by the origin
+repository name). Lookup order: `.agents/workflow.json` → `.claude/workflow.json` (personal
+override, never committed) → adapter file → defaults.
 
 ## Layout
 

@@ -10,7 +10,7 @@
     {
       "name": "tstack-delivery",
       "source": "./plugins/tstack-delivery",
-      "description": "Verify, review and deliver: environment-proven verify passes, a review gate with cheap auto-fixes, and a one-command commit/push/PR chain driven by the repo's .claude/workflow.json."
+      "description": "Verify, review and deliver: environment-proven verify passes, a review gate with cheap auto-fixes, and a one-command commit/push/PR chain driven by workflow-config (repo .agents/workflow.json or a team adapter)."
     }
   ]
 }

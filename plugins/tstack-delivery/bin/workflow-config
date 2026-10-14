@@ -5,9 +5,11 @@ Usage:
   workflow-config            # full merged JSON
   workflow-config base       # one value (dotted path: launch.entry, title.feature)
 
-Reads <git toplevel>/.claude/workflow.json (or ./.claude/workflow.json outside git). When that
-file is absent, falls back to workflows/<repo>.json shipped by any installed plugin (a team
-adapter), <repo> being the origin repository name, so worktrees resolve to the same file.
+Lookup order, first file found wins (paths relative to the git toplevel, or ./ outside git):
+  .agents/workflow.json   shared, committed with the repository
+  .claude/workflow.json   personal override, never committed
+  workflows/<repo>.json   shipped by an installed plugin (a team adapter), <repo> being the
+                          origin repository name, so worktrees resolve to the same file
 Missing file or key = the default below. Unknown keys pass through untouched.
 """
 import json
@@ -79,11 +81,12 @@ def merge(base, over):
 
 
 def main():
-    path = os.path.join(repo_root(), ".claude", "workflow.json")
-    if not os.path.isfile(path):
+    root = repo_root()
+    candidates = [os.path.join(root, d, "workflow.json") for d in (".agents", ".claude")]
+    path = next((p for p in candidates if os.path.isfile(p)), None)
+    if path is None:
         slug = repo_slug()
-        alt = plugin_config_path(slug) if slug else None
-        path = alt or path
+        path = (plugin_config_path(slug) if slug else None) or candidates[0]
     user = {}
     if os.path.isfile(path):
         try:

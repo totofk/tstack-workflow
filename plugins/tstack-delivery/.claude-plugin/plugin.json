@@ -1,5 +1,5 @@
 {
   "name": "tstack-delivery",
-  "description": "Verify, review and deliver: environment-proven verify passes with reusable scripts, a review gate that auto-applies cheap fixes, and a one-command commit/push/PR chain. Team values come from the repository's .claude/workflow.json.",
+  "description": "Verify, review and deliver: environment-proven verify passes with reusable scripts, a review gate that auto-applies cheap fixes, and a one-command commit/push/PR chain. Team values come from workflow-config (repo .agents/workflow.json, personal .claude/workflow.json, or a team adapter).",
   "author": { "name": "Trin (totofk)" }
 }

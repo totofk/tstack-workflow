@@ -1,12 +1,12 @@
 ---
 name: verify
-description: Use when the user approves a verify pass ("verify", "verify local", "test it") after a code change. Prepares the environment, then dispatches a verifier subagent with reusable scripts. Ports, worktree path and launch entry come from the repo's .claude/workflow.json (`workflow-config`).
+description: Use when the user approves a verify pass ("verify", "verify local", "test it") after a code change. Prepares the environment, then dispatches a verifier subagent with reusable scripts. Ports, worktree path and launch entry come from `workflow-config` (repo .agents/workflow.json, personal .claude/workflow.json, or a team adapter).
 ---
 
 The orchestrator delivers a **proven-ready** environment; the verifier only verifies. Every step below has a checkable criterion — do not dispatch until all pass.
 
 ## 0. Config
-`workflow-config` prints the repo's delivery config merged over defaults. This skill uses `worktree` (path template with `{port}`), `launch.entry` (launch.json entry name template with `{port}`) and `launch.ports` (the ports those entries serve). A repo without `.claude/workflow.json` gets the defaults; a repo whose launch entries do not exist yet needs them added once (user-side, in launch.json) before the first verify.
+`workflow-config` prints the repo's delivery config merged over defaults. This skill uses `worktree` (path template with `{port}`), `launch.entry` (launch.json entry name template with `{port}`) and `launch.ports` (the ports those entries serve). A repo with no workflow file (lookup order in the `workflow-config` docstring) gets the defaults; a repo whose launch entries do not exist yet needs them added once (user-side, in launch.json) before the first verify.
 
 ## 1. Route
 First line of the reply: `→ delegate: Opus (verify — adaptive loop)`. Only an explicit "do it yourself" from the user changes this to `→ self`.

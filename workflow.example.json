@@ -1,5 +1,5 @@
 {
-  "$comment": "Copy to <repo>/.claude/workflow.json and commit. Every key is optional; omitted keys take the defaults shown here. Read by the tstack-delivery skills through `workflow-config`. Placeholders in title.*: {type} and {summary} are resolved by the skill from the branch; any other placeholder (e.g. {sprint}, {phase}, {branch}) is resolved by a team adapter plugin, and when none resolves it the skill asks for it in its single batched question.",
+  "$comment": "Shared values: copy to <repo>/.agents/workflow.json and commit, or ship workflows/<repo>.json in a team adapter plugin. <repo>/.claude/workflow.json is a personal, untracked override. Every key is optional; omitted keys take the defaults shown here. Read by the tstack-delivery skills through `workflow-config`. Placeholders in title.*: {type} and {summary} are resolved by the skill from the branch; any other placeholder (e.g. {sprint}, {phase}, {branch}) is resolved by a team adapter plugin, and when none resolves it the skill asks for it in its single batched question.",
   "base": "develop",
   "protected": ["main", "master", "develop"],
   "assignee": "@me",
