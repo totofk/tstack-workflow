@@ -56,11 +56,12 @@ Smoke or preflight fails → fix it myself, no dispatch. Anything the user must 
 - Reuse: paths of existing scripts from the previous round.
 - Screenshots of dialogs/drawers/toasts (anything `position: fixed` or animated): **viewport** capture, never `fullPage`, taken ≥600 ms after the element appears. A fullPage shot unrolls the fixed layer and catches MUI's fade mid-way — the image proves nothing. Say this in the brief whenever a scenario ends on a modal.
 - Findings discipline (verbatim in the brief): "If something looks like a product defect, re-check it once with a plain interaction and report the exact locator + measurement. Do not call it a regression, and do not name a root cause in code you have not read."
-- Stop budget: "at the first environment blocker (the smoke check failing on your side), stop and report — no env repair, no workarounds" + a tool-call cap the verifier counts itself: "after ~N tool calls (default 120), write REPORT.md with what you have and return, even if scenarios remain".
+- Stop budget: "at the first environment blocker (the smoke check failing on your side), stop and report — no env repair, no workarounds". The call cap is the `verify` lane file's `maxTurns` (120); state a lower cap in the brief only for a small scenario set.
+- GraphQL captures: copy every operation name from the `.graphql` document (`query ActionTicketEvent`), never from the resolver method name (`actionTicketEvent`) — the request filter is case-sensitive and 4 of 6 captures came back empty on 2026-10-14 (`54ed391f`) for that reason. Put the exact names in the brief.
 - Output: PNG screenshots in the verify dir captured with Playwright `channel: 'chrome'`, scripts and JSON saved there for the next round. The harness refuses report-file writes from subagents ("return findings as text"), so the verifier RETURNS the per-scenario table (PASS/FAIL/NOT TESTED + evidence file + measurement) as its message, and I write `REPORT.md` from it.
 - Evidence rule (verbatim in the brief): "Evidence = PNG on disk from Playwright `channel: 'chrome'`; a scenario without a disk PNG is NOT TESTED. The Browser pane may be used to find selectors only, ≤10 calls, then back to the script." (pane-driven rounds cost 163 turns / 21.9M cache-read for zero evidence; the script rerun cost 31 turns.)
 
-Dispatch: `Agent` with `model: opus` (the routing rule: verify has an adaptive loop), `run_in_background: true`, `subagent_type: general-purpose`. Sonnet only for a rerun of a script that already passed.
+Dispatch: `Agent` with `subagent_type: verify` (the lane file carries model opus, effort high, no Edit/Write, `maxTurns` 120), `run_in_background: true`. A rerun of a script that already passed may pass `model: sonnet` as an override — note the override in the ledger row.
 
 ## 4. On return
 1. Read the returned table in full and write it to `REPORT.md` (with my own DB checks); check it against the JSON/PNG evidence on disk, not the summary line.
