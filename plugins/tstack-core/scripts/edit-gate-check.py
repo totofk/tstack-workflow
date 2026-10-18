@@ -85,9 +85,10 @@ def main() -> None:
         "Edit blocked by edit-gate: no go-word from the user this turn and no "
         "session arm. Show the user the intended change (ready-to-apply diff), "
         "then wait for a go-word (apply / fix it / ทำเลย / แก้เลย / ...) or "
-        "'arm session'/'ปลดล็อค' for the whole session. If the user's message "
+        "'arm session'/'ปลดล็อค session' for the whole session. If the user's message "
         "clearly intended action but used a word not in the go-word list, "
-        "offer to add it to $CLAUDE_PLUGIN_DATA/edit-gate-words.txt."
+        "offer to add it to $CLAUDE_PLUGIN_DATA/edit-gate-words.txt. "
+        "No second attempt this turn — show the diff and ask for a go-word."
     )
 
 

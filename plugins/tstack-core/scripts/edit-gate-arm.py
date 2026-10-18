@@ -5,9 +5,14 @@ Go-words: $CLAUDE_PLUGIN_DATA/edit-gate-words.txt when it exists (the user's
 own list, survives plugin updates), else edit-gate-words.txt next to this
 script (one per line, # comments).
 
-Session-wide arm: 'arm session' / 'ปลดล็อค' opens the gate until the user
-says 'lock' / 'ล็อค' or the session ends. Per-message arm still re-locks
-on every new message. The user hands the key; Claude never self-arms.
+Session-wide arm: 'arm session' / 'ปลดล็อค session' opens the gate until the
+user says 'lock' / 'ล็อค' or the session ends. Both count only as a command at
+the start of the message: "screen โดนล็อค" in a sentence wiped the session arm
+in 91709465. Per-message arm still re-locks on every new message. The user
+hands the key; Claude never self-arms.
+
+Every Latin go-word also matches its Thai-Kedmanee spelling ("ฟยยสั" =
+"apply" typed with the Thai layout on).
 
 Queued events (task-notifications, subagent hand-backs, cross-session
 messages) are not user messages: they neither re-lock nor arm. Forensics
@@ -32,17 +37,32 @@ if os.environ.get("CLAUDE_PLUGIN_DATA") and os.path.isfile(_user_words):
 # trip by merely mentioning it (2026-07-09). Bare 'ล็อค' stays: an accidental
 # lock fails safe.
 SESSION_ARM_PHRASES = ["arm session", "unlock session", "ปลดล็อค session", "ปลดล็อค gate"]
-# 'ปลดล็อค …' contains 'ล็อค' — always test arm phrases BEFORE lock phrases.
 SESSION_LOCK_PHRASES = ["lock", "ล็อค"]
+
+# Unshifted QWERTY -> Thai Kedmanee, same physical key.
+KEDMANEE = str.maketrans(
+    "qwertyuiop[]asdfghjkl;'zxcvbnm,./",
+    "ๆไำพะัีรนยบลฟหกดเ้่าสวงผปแอิืทมใฝ",
+)
+
+
+def thai_layout(word: str) -> str:
+    return word.lower().translate(KEDMANEE)
 
 
 def load_go_words():
     try:
         with open(WORDS_FILE, encoding="utf-8") as f:
             words = [w.strip() for w in f if w.strip() and not w.startswith("#")]
-        return words or FALLBACK_GO_WORDS
     except OSError:
-        return FALLBACK_GO_WORDS
+        words = []
+    words = words or FALLBACK_GO_WORDS
+    return words + [thai_layout(w) for w in words if re.fullmatch(r"[A-Za-z ]+", w)]
+
+
+def is_command(phrase: str, prompt: str) -> bool:
+    """The message starts with the phrase as a whole word, never an inner substring."""
+    return re.match(re.escape(phrase) + r"(?:[\s.,!?]|$)", prompt.strip().lower()) is not None
 
 
 def flag_paths(session_id: str):
@@ -83,15 +103,15 @@ def handle(prompt: str, session_id: str) -> str:
     except OSError:
         pass
 
-    # Session arm/lock commands (arm checked first — see SESSION_LOCK_PHRASES note).
-    if any(matches(p, prompt, lowered) for p in SESSION_ARM_PHRASES):
+    # Session arm/lock commands.
+    if any(is_command(p, prompt) for p in SESSION_ARM_PHRASES):
         try:
             with open(arm_session, "w") as f:
                 f.write("armed-session")
         except OSError:
             pass
         return "armed-session"
-    if any(matches(p, prompt, lowered) for p in SESSION_LOCK_PHRASES):
+    if any(is_command(p, prompt) for p in SESSION_LOCK_PHRASES):
         try:
             if os.path.exists(arm_session):
                 os.remove(arm_session)
@@ -161,6 +181,23 @@ def selftest() -> None:
         assert handle("<command-message>opsx:apply</command-message> <command-name>/opsx:apply</command-name>", sid) == "armed"
         # A typed message still re-locks (per-message rule intact).
         assert handle("verify ที่นี่", sid) == "relocked" and not os.path.exists(arm)
+        # 91709465: "ล็อค" inside a sentence must not drop the session arm; only the command does.
+        assert handle("arm session", sid) == "armed-session"
+        assert handle("ผมลืมตอบ yes … screen โดนล็อค เลื่อนขึ้นลงไม่ได้", sid) == "relocked" and os.path.exists(arm_session)
+        assert handle("the lock file is stale", sid) == "relocked" and os.path.exists(arm_session)
+        assert handle("please arm session", sid) == "relocked"
+        assert handle("lock", sid) == "locked" and not os.path.exists(arm_session)
+        handle("arm session", sid)
+        assert handle("ล็อค", sid) == "locked" and not os.path.exists(arm_session)
+        assert handle("ปลดล็อค session", sid) == "armed-session"
+        assert handle("Lock.", sid) == "locked"
+        # 7e5c70b5: "ผมสลับ model แล้ว ลุยต่อเลย" was not a go-word.
+        assert handle("ผมสลับ model แล้ว ลุยต่อเลย", sid) == "armed"
+        assert handle("ทำต่อเลย", sid) == "armed"
+        # Thai layout left on: "apply" typed as "ฟยยสั", "fix it" as "ดรป ระ".
+        assert handle("ฟยยสั", sid) == "armed"
+        assert handle("ดรป ระ", sid) == "armed"
+        assert thai_layout("apply") == "ฟยยสั"
         print("edit-gate-arm selftest ok")
     finally:
         for p in (arm, arm_session):
