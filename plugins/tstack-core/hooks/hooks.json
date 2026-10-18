@@ -55,6 +55,14 @@
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/edit-gate-plan-arm.py\"" }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/turn-check.py\"" }
+        ]
+      }
     ]
   }
 }
