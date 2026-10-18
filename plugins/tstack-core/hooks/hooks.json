@@ -22,7 +22,8 @@
         "hooks": [
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/edit-gate-arm.py\"" },
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/resume-state.py\"" },
-          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/terse-by-lang.py\"" }
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/terse-by-lang.py\"" },
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/session-close.py\"" }
         ]
       }
     ],
