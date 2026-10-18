@@ -11,8 +11,9 @@ transcript entry after the latest user message with text, and:
               inherits the last typed message that set a language, as in
               terse-by-lang) and the reply's prose has none
               -> BLOCK (Claude answers again in Thai). c1025ec5 l.1668 etc.
-  boundary  — context >= CONTEXT_BOUNDARY[0] crossed a new CONTEXT_BOUNDARY[1]
-              step this session and the reply has no `context Nk/1M` line
+  boundary  — context passed one of CONTEXT_STOPS (150k / 300k / 500k, the
+              context-band scale) for the first time this session and the
+              reply has no `context Nk/1M` line
               -> BLOCK (say the line). 05deb162 l.779/905/1073/1359.
   routing   — >= 5 tool calls or any Edit/Write, and no reply line starts
               with `→` -> LOG only (the fix is lane agent definitions, not
@@ -36,7 +37,9 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from prompt_source import has_thai, kind, last_typed_prompt  # noqa: E402
 
-CONTEXT_BOUNDARY = (180_000, 50_000)  # (first boundary, step after it) in tokens
+# Band stops in tokens, the same scale the context-band mod draws (green -> yellow -> red).
+# Decision G, 2026-10-19: replaced "180k then every 50k" (6-8 lines per long session) with 3 stops.
+CONTEXT_STOPS = (150_000, 300_000, 500_000)
 LOG = os.path.expanduser("~/.claude/turn-check.log")
 CONTEXT_LINE = re.compile(r"context\s*~?\d+k\s*/\s*1M", re.I)
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
@@ -118,9 +121,8 @@ def check(thai, texts, tools, usage, session_id):
     letters = re.sub(r"[^A-Za-z฀-๿]", "", body)
     if thai and len(letters) >= 120 and not has_thai(body):
         blocks.append("language: the chat language is Thai and this reply's prose has no Thai — answer again in Thai (chat mirrors the user's last typed message)")
-    first, step_size = CONTEXT_BOUNDARY
-    if usage is not None and usage >= first:
-        step = (usage - first) // step_size + 1  # 180k -> 1, 230k -> 2, 280k -> 3
+    if usage is not None and usage >= CONTEXT_STOPS[0]:
+        step = sum(1 for s in CONTEXT_STOPS if usage >= s)  # 150k -> 1, 300k -> 2, 500k -> 3
         sf = step_file(session_id)
         try:
             prev = int(open(sf).read().strip() or 0)
@@ -131,7 +133,7 @@ def check(thai, texts, tools, usage, session_id):
         except OSError:
             pass
         if step > prev and not CONTEXT_LINE.search("\n".join(texts)):
-            blocks.append(f"boundary: context is {usage // 1000}k/1M, a new {step_size // 1000}k step this session — say the one-line `context Nk/1M (measured) · next: … · recommendation` (the user decides)")
+            blocks.append(f"boundary: context is {usage // 1000}k/1M, past the {CONTEXT_STOPS[step - 1] // 1000}k band stop for the first time this session — say the one-line `context Nk/1M (measured) · next: … · recommendation` (the user decides)")
     heavy = len(tools) >= 5 or any(n in EDIT_TOOLS for n in tools)
     if heavy and not any(ln.lstrip().startswith("→") for t in texts for ln in t.splitlines()):
         logs.append(f"routing: {len(tools)} tool calls ({', '.join(sorted(set(tools)))[:80]}) and no `→ delegate/self` line")
@@ -222,13 +224,18 @@ def selftest():
     p = transcript("routing", ["please rerun the failed verify scenarios now"], en, ["Bash"] * 5)
     assert run({"session_id": sid, "transcript_path": p}) is None
     assert len(logged("routing")) == before + 1, logged("routing")
-    # Boundary: a new 50k step without the line blocks; same step again or the line said -> silent.
+    # Boundary: passing a band stop (150k / 300k / 500k) without the line blocks once;
+    # the same band again, or the line said -> silent; the next stop blocks again.
     b, _ = check(False, [en], ["Bash"] * 2, 231_000, sid)
-    assert any(x.startswith("boundary") for x in b), b
+    assert any(x.startswith("boundary") and "150k" in x for x in b), b
     b, l = check(True, [th], ["Bash"] * 6, 231_000, sid)
     assert b == [] and l == [], (b, l)
     b, _ = check(True, [th.replace("context 231k/1M (measured)", "")], ["Bash"] * 2, 281_000, sid)
-    assert any(x.startswith("boundary") for x in b), b
+    assert b == [], b  # still the 150k band: no new line owed
+    b, _ = check(True, [th.replace("context 231k/1M (measured)", "")], ["Bash"] * 2, 320_000, sid)
+    assert any(x.startswith("boundary") and "300k" in x for x in b), b
+    b, _ = check(True, [th.replace("context 231k/1M (measured)", "")], ["Bash"] * 2, 520_000, sid)
+    assert any(x.startswith("boundary") and "500k" in x for x in b), b
     # Boundary alone on a text-only turn: logged, not blocked (no context line owed on a short answer).
     os.remove(sf)
     p = transcript("short", ["ขอ verify ที่นี่"], th.replace("context 231k/1M (measured)", ""), [], usage=231_000)
