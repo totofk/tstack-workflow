@@ -17,8 +17,9 @@ kind(prompt) -> "empty" | "queued" | "injected" | "pasted" | "typed"
              context). Must never set language; arming is the caller's call
              (/opsx:apply arms on purpose via the word "apply").
   pasted   : a long Latin-only block that reads like a resume prompt or
-             report. Typed by the user, but its language is not the chat
-             language (19078ecf 20:57, 62a527c1 10:04).
+             report, or any start_session brief / <pasted_content> block
+             whatever its length or script. Its language is not the chat
+             language (19078ecf 20:57, 62a527c1 10:04, 65dfad12 13:26).
   typed    : the user's own words.
 """
 import re
@@ -44,6 +45,8 @@ INJECTED_PREFIXES = (
     "/",
 )
 PASTED_MARKERS = ("HANDOFF", "Resume", "resume prompt", "## ", "~/.claude/", "/Users/", "```", "Phase")
+PASTED_PREFIXES = ("Background (from the session that started this one)", "<pasted_content")
+SYSTEM_REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
 
 
 def has_thai(text: str) -> bool:
@@ -54,7 +57,13 @@ def is_queued(prompt: str) -> bool:
     return (prompt or "").lstrip().startswith(QUEUED_PREFIXES)
 
 
+def is_brief_or_paste(prompt: str) -> bool:
+    return SYSTEM_REMINDER.sub("", prompt or "").lstrip().startswith(PASTED_PREFIXES)
+
+
 def is_pasted(prompt: str) -> bool:
+    if is_brief_or_paste(prompt):
+        return True
     p = (prompt or "").strip()
     if has_thai(p) or len(p) < 400:
         return False
@@ -67,6 +76,8 @@ def kind(prompt: str) -> str:
         return "empty"
     if p.startswith(QUEUED_PREFIXES):
         return "queued"
+    if is_brief_or_paste(p):
+        return "pasted"
     if p.startswith(INJECTED_PREFIXES):
         return "injected"
     if is_pasted(p):
@@ -74,11 +85,12 @@ def kind(prompt: str) -> str:
     return "typed"
 
 
-def last_typed_prompt(transcript_path: str) -> str:
+def last_typed_prompt(transcript_path: str, accept=lambda c: True) -> str:
     """The most recent user message the human actually typed, from the JSONL transcript.
 
     Skips isMeta entries (skill expansions), tool_result entries, sidechains,
-    and anything kind() does not call typed/pasted. Returns "" when none.
+    anything kind() does not call typed/pasted, and anything accept() rejects.
+    Returns "" when none.
     """
     import json
     try:
@@ -100,7 +112,7 @@ def last_typed_prompt(transcript_path: str) -> str:
             c = "\n".join(texts)
         if not isinstance(c, str):
             continue
-        if kind(c) in ("typed", "pasted"):
+        if kind(c) in ("typed", "pasted") and accept(c):
             return c
     return ""
 
@@ -119,6 +131,10 @@ if __name__ == "__main__":
         assert kind("<bash-input>psql -c 'select 1'</bash-input>") == "injected"
         resume = "# Resume: exit-survey apply\n\n" + ("Read ~/.claude/handoffs/exit-survey/HANDOFF.md first.\n" * 8) + "Then /opsx:apply group 2."
         assert kind(resume) == "pasted", kind(resume)
+        assert kind("Background (from the session that started this one): fix the gate.") == "pasted"
+        assert kind("<system-reminder>ctx</system-reminder>\nBackground (from the session that started this one): x") == "pasted"
+        assert kind('<pasted_content id="a1">\nอ่าน HANDOFF ก่อน\n</pasted_content id="a1">') == "pasted"
+        assert kind("<system-reminder>ctx</system-reminder>\napply") == "injected"
         assert kind("apply") == "typed"
         assert kind("ทำเลย ข้าม propose") == "typed"
         assert kind("this fix seem was fixed only single places, but what I want is component fixing") == "typed"

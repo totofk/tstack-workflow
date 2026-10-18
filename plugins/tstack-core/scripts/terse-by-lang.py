@@ -6,9 +6,10 @@ The chat language is the language of the user's LAST TYPED message
 last typed message"). So:
   typed, Thai present      -> Thai rule
   typed, Latin, >= 5 words -> English rule
-  typed, short ("apply")   -> nothing (never flips the language)
-  pasted block (resume prompt, report) -> language of the last typed message
-                              before it in the transcript, default Thai
+  typed, short ("apply")   -> language of the last typed message that set one
+                              (never flips the language), default Thai
+  pasted block (resume prompt, report, start_session brief, <pasted_content>)
+                           -> same lookup
   queued / injected (task-notification, hand-back, slash command, scheduled
   preamble, bash-input)    -> same lookup. Printing nothing here was the
                               2026-10-04..10 drift: 5 sessions answered in
@@ -50,11 +51,14 @@ def rule(prompt: str, transcript_path: str = "") -> str:
     if k == "empty":
         return ""
     if k == "typed":
-        return rule_for_typed(prompt.strip())
-    # pasted / queued / injected: the chat language comes from the last typed message.
-    prev = last_typed_prompt(transcript_path) if transcript_path else ""
+        out = rule_for_typed(prompt.strip())
+        if out:
+            return out
+    # short typed / pasted / queued / injected: the chat language comes from the
+    # last typed message that set one (printing nothing let d9fa9c24 drift to English after "apply").
+    prev = last_typed_prompt(transcript_path, lambda c: kind(c) == "pasted" or bool(rule_for_typed(c.strip()))) if transcript_path else ""
     if prev and kind(prev) == "typed":
-        return rule_for_typed(prev.strip()) or (THAI + EXEMPT)
+        return rule_for_typed(prev.strip())
     return THAI + EXEMPT
 
 
@@ -64,7 +68,11 @@ if __name__ == "__main__":
         assert rule("แก้ตรงนี้หน่อย").startswith("Terse mode (Thai)")
         assert rule("apply ทั้งสองข้อ").startswith("Terse mode (Thai)")
         assert rule("please explain why this hook fails on resume").startswith("Terse mode (English)")
-        assert rule("apply") == "" and rule("  ") == ""
+        assert rule("  ") == ""
+        # d9fa9c24 2026-10-12 08:53Z: bare "apply" with no history -> default Thai, never silence.
+        assert rule("apply").startswith("Terse mode (Thai)")
+        # dcdc87e4 2026-10-15 12:16Z: a short Thai prompt stays Thai.
+        assert rule("ผมเปิด + login แล้วคุณเห็นมั้ยนะ").startswith("Terse mode (Thai)")
         # Non-typed turns inherit the last typed language from the transcript.
         with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8") as t:
             for c in ["ขอ verify ที่นี่", "<task-notification>x</task-notification>"]:
@@ -80,6 +88,23 @@ if __name__ == "__main__":
         assert rule(resume, path).startswith("Terse mode (Thai)")
         # 7159add6 03:04: scheduled preamble with no typed history -> default Thai.
         assert rule("<scheduled-task name=\"sprint-workflow-review\"> This is an automated run", "/nonexistent").startswith("Terse mode (Thai)")
+        # d9fa9c24: "apply" after a Thai turn -> Thai.
+        assert rule("apply", path).startswith("Terse mode (Thai)")
+        # c47845a0 2026-10-15 21:40Z: a 392-char English <pasted_content> after Thai -> Thai (was typed -> English).
+        decisions = ('\n\n<pasted_content id="6232">\n# Re: CES-5850 — English labels for the new columns\n\n## Decisions\n'
+                     "1. [B] Which naming for the 3 table columns?\n   → **handed_off / pulled_away / closed_holding** _(not answered; suggestion kept)_\n"
+                     '</pasted_content id="6232">\n')
+        assert rule(decisions, path).startswith("Terse mode (Thai)")
+        # 65dfad12 2026-10-17 11:16Z: an English start_session brief as the first message -> default Thai,
+        # and as history it never sets English.
+        brief = ("Background (from the session that started this one):\nFiles Vault (repo folder file-vault-web-app under this "
+                 "project root; Next.js 16 App Router, React 19, shadcn/ui, Tailwind 4, pnpm) is getting a CamScanner-style scanner")
+        assert rule(brief, "/nonexistent").startswith("Terse mode (Thai)")
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8") as t:
+            t.write(json.dumps({"type": "user", "message": {"role": "user", "content": brief}}) + "\n")
+            only_pasted = t.name
+        assert rule("<task-notification>x</task-notification>", only_pasted).startswith("Terse mode (Thai)")
+        os.unlink(only_pasted)
         # A typed English sentence still gets English (the mirror rule).
         assert rule("this fix seem was fixed only single places, but what I want is component fixing").startswith("Terse mode (English)")
         os.unlink(path)
