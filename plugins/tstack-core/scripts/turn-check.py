@@ -22,8 +22,9 @@ transcript entry after the latest user message with text, and:
 Every finding is appended to ~/.claude/turn-check.log (TSV: ts, session,
 check, detail) so the Sunday retro counts them without a transcript scan,
 whether or not it blocked. A block never fires twice in a row
-(stop_hook_active), on a turn with at most one tool call, or on a turn
-started by a queued/injected message. Any exception fails open.
+(stop_hook_active) or on a turn started by a queued/injected message; on a
+turn with at most one tool call only the language check blocks. Any
+exception fails open.
 """
 import json
 import os
@@ -158,7 +159,11 @@ def run(d):
         return None
     blocks, logs = check(thai_expected(trigger, path), texts, tools, usage, sid)
     log(sid, blocks + logs)
-    if blocks and len(tools) >= 2 and kind(trigger) in ("typed", "pasted") and not d.get("stop_hook_active"):
+    if len(tools) < 2:
+        # A text-only reply is where the language drifts most and the cheapest to redo;
+        # the boundary line is not owed on a short answer.
+        blocks = [b for b in blocks if b.startswith("language")]
+    if blocks and kind(trigger) in ("typed", "pasted") and not d.get("stop_hook_active"):
         return {"decision": "block", "reason": " | ".join(blocks)}
     return None
 
@@ -200,8 +205,10 @@ def selftest():
     out = run({"session_id": sid, "transcript_path": p})
     assert out and out["decision"] == "block" and out["reason"].startswith("language"), out
     assert run({"session_id": sid, "transcript_path": p, "stop_hook_active": True}) is None
-    # One-tool-call turn: logged, never blocked.
-    assert run({"session_id": sid, "transcript_path": transcript("one", ["ขอ verify ที่นี่"], en, ["Read"])}) is None
+    # Text-only and one-tool-call turns: the language check still blocks.
+    for name, tools in (("zero", []), ("one", ["Read"])):
+        out = run({"session_id": sid, "transcript_path": transcript(name, ["ขอ verify ที่นี่"], en, tools)})
+        assert out and out["reason"].startswith("language"), (name, out)
     # Short typed "apply" and a pasted English resume inherit Thai from the last typed message.
     resume = "# Resume: exit-survey apply\n\n" + ("Read ~/.claude/handoffs/exit-survey/HANDOFF.md first.\n" * 8)
     assert kind(resume) == "pasted"
@@ -222,6 +229,11 @@ def selftest():
     assert b == [] and l == [], (b, l)
     b, _ = check(True, [th.replace("context 231k/1M (measured)", "")], ["Bash"] * 2, 281_000, sid)
     assert any(x.startswith("boundary") for x in b), b
+    # Boundary alone on a text-only turn: logged, not blocked (no context line owed on a short answer).
+    os.remove(sf)
+    p = transcript("short", ["ขอ verify ที่นี่"], th.replace("context 231k/1M (measured)", ""), [], usage=231_000)
+    assert run({"session_id": sid, "transcript_path": p}) is None
+    assert logged("boundary")
     # Broken transcript path -> exception, which main() turns into a silent exit 0.
     try:
         run({"session_id": sid, "transcript_path": os.path.join(tmp, "missing.jsonl")})
