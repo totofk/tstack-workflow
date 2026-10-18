@@ -46,6 +46,12 @@
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/dev-server-gate.py\"" },
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/git-guard.py\"" }
         ]
+      },
+      {
+        "matcher": "mcp__ccd_turn__wrap_up",
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/wrapup-check.py\"" }
+        ]
       }
     ],
     "PostToolUse": [
@@ -53,6 +59,12 @@
         "matcher": "ExitPlanMode",
         "hooks": [
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/edit-gate-plan-arm.py\"" }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/claude-md-lint.py\"" }
         ]
       }
     ],
