@@ -38,8 +38,17 @@ then `preview_start` with the entry name from `workflow-config launch.entry` (`{
 | Test data | one read-only query proves a row matching the scenario exists; note ids. Every page named in the brief is opened in a real browser (pane or Playwright) and its FINAL URL + rendered content checked — HTTP 200 does not rule out a client-side redirect or a spinner that waits for params/login (2026-09-29: `/privacy`, `/claim`, `/rns` all passed the 200 smoke and blocked the verifier) |
 | Selectors | every selector the brief names is proven against the LIVE page in this round: one `javascript_tool` call in the pane returning `document.querySelectorAll(sel).length` per selector (expected count noted in the brief). Never copy selectors from an older brief or script — a rebase or a shared-component change renames them silently (MUI radios lost `name=` between two rounds; the verifier burned 108 tool calls and reported a false "regression") |
 | Smoke check | ONE manual request that reaches the scenario's entry point (page → 200, endpoint returns data). Paste command + result into the brief |
+| Preflight script | the block below, run against the worktree once the server is up: every row PASS (or SKIP); its PASS/FAIL table is pasted verbatim into the brief. Any FAIL = no dispatch — I fix the env first and rerun it. It reads `.env` key names only and never prints a value; pass directories, never a `.env` path |
 
-Smoke fails → fix it myself, no dispatch. Anything the user must start (tunnel, ngrok) → ask first.
+```bash
+# tstack-core's scripts/ sits beside its bin/, which the enabled plugin puts on PATH (this skill lives in tstack-delivery)
+PF=$(echo "$PATH" | tr ':' '\n' | while read -r d; do [ -f "$d/../scripts/verify-preflight.py" ] && { echo "$d/../scripts/verify-preflight.py"; break; }; done)
+python3 "$PF" --web-dir "$WT" [--api-dir <api checkout> --web-origin http://localhost:$PORT] \
+  [--page http://localhost:$PORT/<entry-page>]... [--probe "NAME|URL|must-contain|must-not-contain"]...
+```
+Rows: `env-keys` (`.env.example` keys missing from `.env`), `cors` (web origin in the api allowlist), `migrate` (`prisma migrate status` clean; `--skip migrate` for a repo without Prisma), `framework` (installed major = pinned major), `page` (200, final path = requested, real body), `probe` (a third-party auth or test-data id resolves).
+
+Smoke or preflight fails → fix it myself, no dispatch. Anything the user must start (tunnel, ngrok) → ask first.
 
 ## 3. Brief (write to `~/.claude/handoffs/<task>/verify/BRIEF.md`, then dispatch)
 - Proven facts: URLs, ports, ids, file paths, `envrun` invocation, the smoke command + its output.
