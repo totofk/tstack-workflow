@@ -12,9 +12,12 @@ transcript entry after the latest user message with text, and:
               terse-by-lang) and the reply's prose has none
               -> BLOCK (Claude answers again in Thai). c1025ec5 l.1668 etc.
   boundary  — context passed one of CONTEXT_STOPS (150k / 300k / 500k, the
-              context-band scale) for the first time this session and the
-              reply has no `context Nk/1M` line
-              -> BLOCK (say the line). 05deb162 l.779/905/1073/1359.
+              context-band scale), no earlier reply in the transcript said a
+              `context Nk/1M` line at or past that stop, and this reply has none
+              -> BLOCK (say the line). 05deb162 l.779/905/1073/1359. The
+              transcript, not per-session state, says what was already said:
+              a resume gets a new session id and TMPDIR, and a state file
+              keyed on them fired the 150k stop twice (6fbb0112 → 32391224).
   routing   — >= 5 tool calls or any Edit/Write, and no reply line starts
               with `→` -> LOG only (the fix is lane agent definitions, not
               a line said after the fact). 05deb162 l.642/807/1004/1280,
@@ -41,7 +44,7 @@ from prompt_source import has_thai, kind, last_typed_prompt  # noqa: E402
 # Decision G, 2026-10-19: replaced "180k then every 50k" (6-8 lines per long session) with 3 stops.
 CONTEXT_STOPS = (150_000, 300_000, 500_000)
 LOG = os.path.expanduser("~/.claude/turn-check.log")
-CONTEXT_LINE = re.compile(r"context\s*~?\d+k\s*/\s*1M", re.I)
+CONTEXT_LINE = re.compile(r"context\s*~?(\d+)k\s*/\s*1M", re.I)
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 
 
@@ -55,8 +58,26 @@ def user_text(d) -> str:
     return c if isinstance(c, str) else ""
 
 
+def band(tokens: int) -> int:
+    """150k -> 1, 300k -> 2, 500k -> 3, below 150k -> 0."""
+    return sum(1 for s in CONTEXT_STOPS if tokens >= s)
+
+
+def said_band(entries) -> int:
+    """Highest band stop an earlier main-thread reply already covered with a `context Nk/1M` line."""
+    top = 0
+    for d in entries:
+        if d.get("type") != "assistant" or d.get("isSidechain"):
+            continue
+        for b in (d.get("message") or {}).get("content") or []:
+            if isinstance(b, dict) and b.get("type") == "text":
+                for m in CONTEXT_LINE.finditer(b.get("text", "")):
+                    top = max(top, band(int(m.group(1)) * 1000))
+    return top
+
+
 def load_turn(transcript_path: str):
-    """Return (trigger prompt, assistant text blocks, tool names, last context total)."""
+    """Return (trigger prompt, assistant text blocks, tool names, last context total, band said before this turn)."""
     entries = []
     for line in open(transcript_path, encoding="utf-8").read().splitlines():
         try:
@@ -68,7 +89,7 @@ def load_turn(transcript_path: str):
         if kind(trigger) != "empty":
             break
     else:
-        return "", [], [], None
+        return "", [], [], None, 0
     texts, tools, usage = [], [], None
     for d in entries[start + 1:]:
         if d.get("type") != "assistant" or d.get("isSidechain"):
@@ -84,7 +105,7 @@ def load_turn(transcript_path: str):
         u = m.get("usage") or {}
         if u:
             usage = sum(int(u.get(k, 0) or 0) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
-    return trigger, texts, tools, usage
+    return trigger, texts, tools, usage, said_band(entries[:start])
 
 
 def sets_language(c: str) -> bool:
@@ -109,29 +130,15 @@ def prose(texts) -> str:
     return "\n".join(out)
 
 
-def step_file(session_id: str) -> str:
-    safe = re.sub(r"[^A-Za-z0-9_-]", "_", session_id or "default")
-    return os.path.join(tempfile.gettempdir(), f"claude-turn-check-{safe}.step")
-
-
-def check(thai, texts, tools, usage, session_id):
-    """Return (blocking findings, log-only findings), each "check: detail"."""
+def check(thai, texts, tools, usage, prev):
+    """Return (blocking findings, log-only findings), each "check: detail". prev = band already said."""
     blocks, logs = [], []
     body = prose(texts)
     letters = re.sub(r"[^A-Za-z฀-๿]", "", body)
     if thai and len(letters) >= 120 and not has_thai(body):
         blocks.append("language: the chat language is Thai and this reply's prose has no Thai — answer again in Thai (chat mirrors the user's last typed message)")
     if usage is not None and usage >= CONTEXT_STOPS[0]:
-        step = sum(1 for s in CONTEXT_STOPS if usage >= s)  # 150k -> 1, 300k -> 2, 500k -> 3
-        sf = step_file(session_id)
-        try:
-            prev = int(open(sf).read().strip() or 0)
-        except (OSError, ValueError):
-            prev = 0
-        try:
-            open(sf, "w").write(str(step))
-        except OSError:
-            pass
+        step = band(usage)
         if step > prev and not CONTEXT_LINE.search("\n".join(texts)):
             blocks.append(f"boundary: context is {usage // 1000}k/1M, past the {CONTEXT_STOPS[step - 1] // 1000}k band stop for the first time this session — say the one-line `context Nk/1M (measured) · next: … · recommendation` (the user decides)")
     heavy = len(tools) >= 5 or any(n in EDIT_TOOLS for n in tools)
@@ -156,10 +163,10 @@ def run(d):
     """Hook payload -> the block decision dict, or None."""
     sid = d.get("session_id") or "default"
     path = d.get("transcript_path") or ""
-    trigger, texts, tools, usage = load_turn(path)
+    trigger, texts, tools, usage, prev = load_turn(path)
     if not trigger:
         return None
-    blocks, logs = check(thai_expected(trigger, path), texts, tools, usage, sid)
+    blocks, logs = check(thai_expected(trigger, path), texts, tools, usage, prev)
     log(sid, blocks + logs)
     if len(tools) < 2:
         # A text-only reply is where the language drifts most and the cheapest to redo;
@@ -177,9 +184,6 @@ def selftest():
     tmp = tempfile.mkdtemp(prefix="turn-check-selftest-")
     LOG = os.path.join(tmp, "turn-check.log")
     sid = "turn-check-selftest"
-    sf = step_file(sid)
-    if os.path.exists(sf):
-        os.remove(sf)
 
     def transcript(name, prompts, reply, tools, usage=50_000):
         """prompts: earlier user messages, last one starts the turn; then tool calls + tool results + reply."""
@@ -224,23 +228,42 @@ def selftest():
     p = transcript("routing", ["please rerun the failed verify scenarios now"], en, ["Bash"] * 5)
     assert run({"session_id": sid, "transcript_path": p}) is None
     assert len(logged("routing")) == before + 1, logged("routing")
-    # Boundary: passing a band stop (150k / 300k / 500k) without the line blocks once;
-    # the same band again, or the line said -> silent; the next stop blocks again.
-    b, _ = check(False, [en], ["Bash"] * 2, 231_000, sid)
+    # Boundary: passing a band stop (150k / 300k / 500k) without the line blocks;
+    # the band already said, or the line in this reply -> silent; the next stop blocks again.
+    no_line = th.replace("context 231k/1M (measured)", "")
+    b, _ = check(False, [en], ["Bash"] * 2, 231_000, 0)
     assert any(x.startswith("boundary") and "150k" in x for x in b), b
-    b, l = check(True, [th], ["Bash"] * 6, 231_000, sid)
+    b, l = check(True, [th], ["Bash"] * 6, 231_000, 0)
     assert b == [] and l == [], (b, l)
-    b, _ = check(True, [th.replace("context 231k/1M (measured)", "")], ["Bash"] * 2, 281_000, sid)
+    b, _ = check(True, [no_line], ["Bash"] * 2, 281_000, 1)
     assert b == [], b  # still the 150k band: no new line owed
-    b, _ = check(True, [th.replace("context 231k/1M (measured)", "")], ["Bash"] * 2, 320_000, sid)
+    b, _ = check(True, [no_line], ["Bash"] * 2, 320_000, 1)
     assert any(x.startswith("boundary") and "300k" in x for x in b), b
-    b, _ = check(True, [th.replace("context 231k/1M (measured)", "")], ["Bash"] * 2, 520_000, sid)
+    b, _ = check(True, [no_line], ["Bash"] * 2, 520_000, 2)
     assert any(x.startswith("boundary") and "500k" in x for x in b), b
     # Boundary alone on a text-only turn: logged, not blocked (no context line owed on a short answer).
-    os.remove(sf)
-    p = transcript("short", ["ขอ verify ที่นี่"], th.replace("context 231k/1M (measured)", ""), [], usage=231_000)
+    p = transcript("short", ["ขอ verify ที่นี่"], no_line, [], usage=231_000)
     assert run({"session_id": sid, "transcript_path": p}) is None
     assert logged("boundary")
+
+    def two_turns(name, first_reply, first_usage, usage=250_000):
+        """Turn 1 replies at first_usage; turn 2 (heavy, no context line) runs at usage."""
+        p1 = transcript(name, ["ขอ verify ที่นี่"], first_reply, [], usage=first_usage)
+        p2 = transcript(name + "-2", ["ต่อเลย"], no_line, ["Bash"] * 2, usage=usage)
+        with open(p1, "a", encoding="utf-8") as f:
+            f.write(open(p2, encoding="utf-8").read())
+        return p1
+
+    # Resume with a new session id: the 150k line said before the resume still counts (6fbb0112 → 32391224).
+    p = two_turns("resume", th, 231_000)
+    assert run({"session_id": "resumed-new-id", "transcript_path": p}) is None
+    # Earlier turn passed 150k without the line (text-only, not blocked) -> the next heavy turn still owes it.
+    p = two_turns("owed", no_line, 231_000)
+    out = run({"session_id": "resumed-new-id", "transcript_path": p})
+    assert out and "boundary" in out["reason"] and "150k" in out["reason"], out
+    # A line said at 231k does not cover the 300k stop.
+    out = run({"session_id": sid, "transcript_path": two_turns("next", th, 231_000, usage=320_000)})
+    assert out and "300k" in out["reason"], out
     # Broken transcript path -> exception, which main() turns into a silent exit 0.
     try:
         run({"session_id": sid, "transcript_path": os.path.join(tmp, "missing.jsonl")})
@@ -252,7 +275,6 @@ def selftest():
     for f in os.listdir(tmp):
         os.remove(os.path.join(tmp, f))
     os.rmdir(tmp)
-    os.remove(sf)
     print("turn-check selftest ok")
 
 
