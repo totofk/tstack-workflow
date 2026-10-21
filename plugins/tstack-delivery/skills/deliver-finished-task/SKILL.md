@@ -41,6 +41,7 @@ If the tree is clean and the work already sits as commits on a branch cut from `
 - Title: pick the kind from the branch prefix (`hotfix/*` → `hotfix`, `fix/*`, `bugfix/*` → `bugfix`, else `feature`) and fill `workflow-config title.<kind>`. Defaults are conventional (`{type}: {summary}`, `fix: {summary}`, `hotfix: {summary}`); `{summary}` is the branch slug with dashes as spaces unless the user gave a title. A placeholder the pattern needs that cannot be derived (a sprint tag, a ticket id) goes into the single batched question — never guessed.
 - Right after opening a PR read `gh pr view <n> --json mergeable`. `CONFLICTING` (possible even when a local `git merge-tree` exits 0 — criss-cross merge bases) → never resolve on GitHub: cut `<branch>-<base>` = branch + `git merge origin/<base>`, open a NEW PR from it, close the old one with a pointer comment.
 - Paired / dependent PRs declare the merge dependency in every PR body (order-dependent vs safe together; what QA must wait for).
+- The first line of `## Context` is the ticket URL verbatim (the ticket `workflow-config acceptance` names — the same one the title placeholders were read from); no ticket → the literal line `No ticket`. Never omit the line: routines parse it.
 - Assign with `gh pr edit <n> --add-assignee <workflow-config assignee>` after every `gh pr create` (default `@me`). No AI attribution in commits or PR bodies.
 - Pushes to any branch in `workflow-config protected` happen only on explicit per-instance permission in the conversation (the git guard hook also asks on `main`/`master`).
 - Shared trees: never bare `git stash` — if steps 3–7 are really needed, `git stash push -u -m "<unique-tag>"`, apply by SHA, or use a temporary `git worktree`.
@@ -89,7 +90,8 @@ Audience: dev reviewers, now and whoever reads the PR years later. Sections 3 an
 
 ```markdown
 ## Context
-<ticket link + 1–2 lines: what was wrong or missing; bugfix → root cause here>
+<ticket URL verbatim, alone on the first line — or the literal `No ticket`>
+<1–2 lines: what was wrong or missing; bugfix → root cause here>
 
 ## Summary
 <the smallest visual that makes the change clear: diff sketch of a call tree / component tree / state flow, or a shallow file tree; Mermaid only for cross-service flow>
