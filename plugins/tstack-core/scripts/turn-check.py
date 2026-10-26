@@ -134,9 +134,10 @@ def said_band(entries) -> int:
 
 
 def load_turn(transcript_path: str):
-    """Return (trigger prompt, assistant text blocks, (tool name, input) pairs, last context total, band said before this turn, wrap).
+    """Return (trigger prompt, assistant text blocks, (tool name, input) pairs, last context total, band said before this turn, wrap, own).
 
     wrap = (number of text blocks before the turn's last wrap_up call, its input), or None.
+    own = the tool calls after the turn's last user entry with text, meta entries included.
     """
     entries = []
     for line in open(transcript_path, encoding="utf-8").read().splitlines():
@@ -150,8 +151,11 @@ def load_turn(transcript_path: str):
             break
     else:
         return "", [], [], None, 0, None
-    texts, tools, usage, wrap = [], [], None, None
+    texts, tools, own, usage, wrap = [], [], [], None, None
     for d in entries[start + 1:]:
+        c = (d.get("message") or {}).get("content")
+        if d.get("type") == "user" and not d.get("isSidechain") and (isinstance(c, str) or any(isinstance(b, dict) and b.get("type") == "text" for b in c or [])):
+            own = []  # a meta entry (hook feedback, another session's message) starts the tools this stop answers for
         if d.get("type") != "assistant" or d.get("isSidechain"):
             continue
         m = d.get("message") or {}
@@ -162,12 +166,13 @@ def load_turn(transcript_path: str):
                 texts.append(b["text"])
             elif b.get("type") == "tool_use":
                 tools.append((b.get("name", ""), b.get("input") or {}))
+                own.append(tools[-1])
                 if b.get("name") == WRAP_UP:
                     wrap = (len(texts), b.get("input") or {})
         u = m.get("usage") or {}
         if u:
             usage = sum(int(u.get(k, 0) or 0) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
-    return trigger, texts, tools, usage, said_band(entries[:start]), wrap
+    return trigger, texts, tools, usage, said_band(entries[:start]), wrap, own
 
 
 def sets_language(c: str) -> bool:
@@ -192,8 +197,12 @@ def prose(texts) -> str:
     return "\n".join(out)
 
 
-def check(thai, texts, tools, usage, prev):
-    """Return (blocking findings, log-only findings), each "check: detail". prev = band already said."""
+def check(thai, texts, tools, usage, prev, routed=None):
+    """Return (blocking findings, log-only findings), each "check: detail". prev = band already said.
+
+    routed = the tool calls the routing check judges (default: tools).
+    """
+    routed = tools if routed is None else routed
     blocks, logs = [], []
     body = prose(texts)
     letters = re.sub(r"[^A-Za-z฀-๿]", "", body)
@@ -203,9 +212,9 @@ def check(thai, texts, tools, usage, prev):
         step = band(usage)
         if step > prev and not CONTEXT_LINE.search("\n".join(texts)):
             blocks.append(f"boundary: context is {usage // 1000}k/1M, past the {CONTEXT_STOPS[step - 1] // 1000}k band stop for the first time this session — say the one-line `context Nk/1M (measured) · next: … · recommendation` (the user decides)")
-    if needs_routing(tools) and not any(ln.lstrip().startswith("→") for t in texts for ln in t.splitlines()):
-        names = sorted({n for n, _ in tools})
-        logs.append(f"routing: {len(tools)} tool calls ({', '.join(names)[:80]}) with an Agent call or a repository edit and no `→ delegate/self` line")
+    if needs_routing(routed) and not any(ln.lstrip().startswith("→") for t in texts for ln in t.splitlines()):
+        names = sorted({n for n, _ in routed})
+        logs.append(f"routing: {len(routed)} tool calls ({', '.join(names)[:80]}) with an Agent call or a repository edit and no `→ delegate/self` line")
     return blocks, logs
 
 
@@ -239,11 +248,11 @@ def run(d):
     """Hook payload -> the block decision dict, or None."""
     sid = d.get("session_id") or "default"
     path = d.get("transcript_path") or ""
-    trigger, texts, tools, usage, prev, wrap = load_turn(path)
+    trigger, texts, tools, usage, prev, wrap, own = load_turn(path)
     if not trigger:
         return None
     state = load_state(path)
-    blocks, logs = check(thai_expected(trigger, path), texts, tools, usage, max(prev, state.get("blocked", 0)))
+    blocks, logs = check(thai_expected(trigger, path), texts, tools, usage, max(prev, state.get("blocked", 0)), own)
     blocks += check_wrapup(texts, wrap)
     step = band(usage or 0)
     boundary = any(b.startswith("boundary") for b in blocks)
@@ -328,6 +337,20 @@ def selftest():
         before = len(logged("routing"))
         assert run({"session_id": sid, "transcript_path": transcript(name, prompt, en, tools)}) is None
         assert len(logged("routing")) == before + rows, (name, logged("routing"))
+    # A meta user entry (another session's message, Stop hook feedback) ends the routed window:
+    # the earlier Agent call is not counted again in the turn after it (d9b10a57, 2026-10-26).
+    for name, meta, active in (("agent-message", "Another Claude session sent a message:\n<agent-message>done</agent-message>", False),
+                               ("stop-feedback", "Stop hook feedback:\nboundary: say the context line", True)):
+        p = transcript(name, prompt, en, [("Agent", {"subagent_type": "implement"}), "Bash"])
+        before = len(logged("routing"))
+        run({"session_id": sid, "transcript_path": p})
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"type": "user", "isMeta": True, "message": {"role": "user", "content": meta}}) + "\n")
+            f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {}}]}}) + "\n")
+            f.write(json.dumps({"type": "user", "message": {"content": [{"type": "tool_result", "content": "ok"}]}}) + "\n")
+            f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": en}]}}) + "\n")
+        run({"session_id": sid, "transcript_path": p, "stop_hook_active": active})
+        assert len(logged("routing")) == before + 1, (name, logged("routing"))
     # Boundary: passing a band stop (300k / 500k) without the line blocks;
     # the band already said, or the line in this reply -> silent; the next stop blocks again.
     th = th.replace("231k", "331k")
