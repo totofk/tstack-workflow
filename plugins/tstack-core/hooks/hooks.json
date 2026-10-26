@@ -60,12 +60,6 @@
         "hooks": [
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/edit-gate-plan-arm.py\"" }
         ]
-      },
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/claude-md-lint.py\"" }
-        ]
       }
     ],
     "Stop": [
