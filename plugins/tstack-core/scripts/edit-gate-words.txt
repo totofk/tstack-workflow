@@ -1,6 +1,7 @@
 # edit-gate go-words — one per line, lines starting with # are ignored.
 # Latin words match whole-word (case-insensitive); Thai matches as substring.
 apply
+re:(?i)^\s*go(?![A-Za-z])
 go ahead
 fix it
 do it

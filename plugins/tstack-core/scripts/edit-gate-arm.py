@@ -61,8 +61,16 @@ def load_go_words():
 
 
 def is_command(phrase: str, prompt: str) -> bool:
-    """The message starts with the phrase as a whole word, never an inner substring."""
-    return re.match(re.escape(phrase) + r"(?:[\s.,!?]|$)", prompt.strip().lower()) is not None
+    """The phrase starts the message or its last line, or is a whole line; never an inner substring.
+
+    4c37721d: "A\\narm session" (an answer plus the arm on its own line) did not arm.
+    """
+    lines = [ln.strip().lower() for ln in prompt.strip().splitlines() if ln.strip()]
+    if not lines:
+        return False
+    starts = re.compile(re.escape(phrase) + r"(?:[\s.,!?]|$)")
+    whole = re.compile(re.escape(phrase) + r"[.,!?]*")
+    return bool(starts.match(lines[0]) or starts.match(lines[-1]) or any(whole.fullmatch(ln) for ln in lines))
 
 
 def flag_paths(session_id: str):
@@ -81,9 +89,10 @@ def matches(word: str, prompt: str, lowered: str) -> bool:
         except re.error:
             return False
     wl = word.lower()
-    # Thai has no word boundaries; use substring for Thai, \b for latin.
+    # Thai has no word boundaries; use substring for Thai. Latin words are bounded by
+    # non-Latin letters, not \b: Thai letters are \w, so "applyเลย" never matched \bapply\b.
     if re.search(r"[a-z]", wl):
-        return re.search(r"\b" + re.escape(wl) + r"\b", lowered) is not None
+        return re.search(r"(?<![a-z])" + re.escape(wl) + r"(?![a-z])", lowered) is not None
     return wl in prompt
 
 
@@ -198,6 +207,17 @@ def selftest() -> None:
         assert handle("ฟยยสั", sid) == "armed"
         assert handle("ดรป ระ", sid) == "armed"
         assert thai_layout("apply") == "ฟยยสั"
+        # 147e4a92: leading "go" arms, also glued to Thai; "go" inside a sentence does not.
+        assert handle("go แก้ premium", sid) == "armed"
+        assert handle("goแก้ premium", sid) == "armed"
+        assert handle("applyเลย", sid) == "armed"
+        assert handle("let's go through the list first", sid) == "relocked"
+        # 4c37721d: an answer, then the arm phrase on its own (last) line.
+        handle("lock", sid)
+        assert handle("A\narm session", sid) == "armed-session" and os.path.exists(arm_session)
+        assert handle("ข้อ 1 ย้ายไป Stop hook\nlock", sid) == "locked" and not os.path.exists(arm_session)
+        # 4ca98bf0: "ลองดูเลย" was a question — stays not armed.
+        assert handle("ลองดูเลย", sid) == "relocked"
         print("edit-gate-arm selftest ok")
     finally:
         for p in (arm, arm_session):
