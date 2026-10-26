@@ -2,12 +2,9 @@
 """PreToolUse hook on mcp__ccd_turn__wrap_up: the box must not swallow the answer.
 
 When wrap_up carries an `ask`, the box ends the turn and the user sees only
-the recap and the question. Three ways that went wrong in one retro session
+the recap and the question. Ways that went wrong in one retro session
 (1329b75d, 2026-10-19):
 
-  chat      — ask set and the turn's chat text is under 200 chars: the
-              proposals lived only in the box or on a page.
-              -> DENY. L1293 (81 chars), L1419 (122), L1449 (0), L1554 (96), L1619 (101).
   link      — ask set, an answer-me-with-html page was rendered this turn
               (`am.mjs … render`) and chat has no path / basename / link to
               the last render's page.
@@ -17,8 +14,12 @@ the recap and the question. Three ways that went wrong in one retro session
               sets a language; a clicked button's message never sets it).
               -> DENY. L890, L1141, L1230, L1293, L1419 (English after Thai).
 
+The chat-length check moved to turn-check (Stop hook) on 2026-10-26: text in
+the same message as this call is not in the transcript yet at PreToolUse
+time, and the app puts the closing message after the call.
+
 Every finding is appended to ~/.claude/turn-check.log (turn-check's TSV
-format, checks wrapup-chat / wrapup-link / wrapup-language). Any exception
+format, checks wrapup-link / wrapup-language). Any exception
 fails open. `--dry-run <transcript.jsonl>` replays every wrap_up in a file.
 """
 import importlib.util
@@ -38,7 +39,6 @@ tc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tc)
 
 WRAP_UP = "mcp__ccd_turn__wrap_up"
-MIN_CHAT = 200
 PAGE = re.compile(r"✓\s+(\S.*?\.html)\s*$", re.M)
 LINK = re.compile(r"link:\s*(\S+)")
 
@@ -115,8 +115,6 @@ def findings(d):
     chat = "\n".join(texts)
     out = []
     if (ti.get("ask") or "").strip():
-        if len(chat.strip()) < MIN_CHAT:
-            out.append(f"wrapup-chat: chat text is {len(chat.strip())} chars — the box ends the turn and the user sees only the recap and ask — write the answer/proposals in chat first (what is proposed, options, page link), then call wrap_up")
         m = PAGE.search(render or "")
         if m:
             page = m.group(1).strip()
@@ -199,8 +197,10 @@ def selftest():
              "actions": [{"label": "รับทั้ง 4", "message": "F: รับ F1–F4 ตามที่เสนอ"}, {"label": "ไม่เอาบางข้อ", "message": "F: รับบางข้อ เดี๋ยวบอกเลขที่ไม่เอา"}]}
     thai_trigger = user("E: คงไว้ ตั้ง trigger ขยายเมื่อ index > 17.1 KB หรือเจอ recall miss")
 
-    # L1619 shape: short chat, page rendered and not linked -> chat + link.
-    assert checks([thai_trigger, said("E บันทึกแล้ว ต่อข้อ F")] + render, f_box) == ["wrapup-chat", "wrapup-link"]
+    # L1619 shape: short chat, page rendered and not linked -> link (chat length is turn-check's now).
+    assert checks([thai_trigger, said("E บันทึกแล้ว ต่อข้อ F")] + render, f_box) == ["wrapup-link"]
+    # A short pre-call chat alone no longer denies: the closing text comes after the call.
+    assert checks([thai_trigger, said("→ self: plugin repo ของผมเอง")], f_box) == []
     # Same box after a 250-char Thai answer ending with the percent-encoded file:// link -> pass.
     answer = ("ข้อ F เสนอ 4 ข้อ: F1 wolf เหลือแค่ bug log, F2 ลบ rule graphify ก่อน, F3 repowise เฉพาะ project, F4 วัด hook cost ก่อนลงเพิ่ม " * 2) + "\nfile://" + urllib.parse.quote(page)
     assert len(answer) >= 250
@@ -241,7 +241,7 @@ def selftest():
         pass
 
     logged = [r.split("\t")[2] for r in open(tc.LOG, encoding="utf-8").read().splitlines()]
-    assert {"wrapup-chat", "wrapup-link", "wrapup-language"} <= set(logged), logged
+    assert {"wrapup-link", "wrapup-language"} <= set(logged) and "wrapup-chat" not in logged, logged
     assert (os.path.getsize(real_log) if os.path.exists(real_log) else None) == real_size, "real log was written"
     for f in os.listdir(tmp):
         os.remove(os.path.join(tmp, f))

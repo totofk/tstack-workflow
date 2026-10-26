@@ -27,6 +27,16 @@ transcript entry after the latest user message with text, and:
               05deb162 l.642/807/1004/1280, c1025ec5 l.1628. Read-only and
               scratch-file turns are not checked (2026-10-25 retro: 185 rows,
               0 complaints).
+  wrapup    — the turn called wrap_up, and (a) wrap_up had an `ask` and the
+              closing text after it is under WRAPUP_MIN_CHAT chars, or (b) a
+              shell fence sits only in text before the turn's tool calls
+              (the desktop app collapses it, so "run the blocks above" points
+              at nothing: 37dda5c5 04:21, 4c37721d 16:48) -> BLOCK. Moved here
+              from the wrap_up PreToolUse hook (2026-10-25 retro): text in the
+              same message as the wrap_up call is not in the transcript yet at
+              PreToolUse time, and the app puts the closing message after the
+              call, so a pre-call count refused 83 times on answers it could
+              not see (d9b10a57 L435, 1ecce147 L838-883).
 
 Every finding is appended to ~/.claude/turn-check.log (TSV: ts, session,
 check, detail) so the Sunday retro counts them without a transcript scan,
@@ -55,6 +65,10 @@ LOG = os.path.expanduser("~/.claude/turn-check.log")
 STATE_DIR = os.path.expanduser("~/.claude/turn-check-state")
 CONTEXT_LINE = re.compile(r"context\s*~?(\d+)k\s*/\s*1M", re.I)
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+WRAP_UP = "mcp__ccd_turn__wrap_up"
+WRAPUP_MIN_CHAT = 200
+SHELL_FENCE = re.compile(r"```(?:bash|sh|zsh|shell)\b")
+WRAPUP_HINT = "put the commands / proposals in the closing text after wrap_up, never 'see above'"
 
 
 def user_text(d) -> str:
@@ -120,7 +134,10 @@ def said_band(entries) -> int:
 
 
 def load_turn(transcript_path: str):
-    """Return (trigger prompt, assistant text blocks, (tool name, input) pairs, last context total, band said before this turn)."""
+    """Return (trigger prompt, assistant text blocks, (tool name, input) pairs, last context total, band said before this turn, wrap).
+
+    wrap = (number of text blocks before the turn's last wrap_up call, its input), or None.
+    """
     entries = []
     for line in open(transcript_path, encoding="utf-8").read().splitlines():
         try:
@@ -132,8 +149,8 @@ def load_turn(transcript_path: str):
         if kind(trigger) != "empty":
             break
     else:
-        return "", [], [], None, 0
-    texts, tools, usage = [], [], None
+        return "", [], [], None, 0, None
+    texts, tools, usage, wrap = [], [], None, None
     for d in entries[start + 1:]:
         if d.get("type") != "assistant" or d.get("isSidechain"):
             continue
@@ -145,10 +162,12 @@ def load_turn(transcript_path: str):
                 texts.append(b["text"])
             elif b.get("type") == "tool_use":
                 tools.append((b.get("name", ""), b.get("input") or {}))
+                if b.get("name") == WRAP_UP:
+                    wrap = (len(texts), b.get("input") or {})
         u = m.get("usage") or {}
         if u:
             usage = sum(int(u.get(k, 0) or 0) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
-    return trigger, texts, tools, usage, said_band(entries[:start])
+    return trigger, texts, tools, usage, said_band(entries[:start]), wrap
 
 
 def sets_language(c: str) -> bool:
@@ -190,6 +209,20 @@ def check(thai, texts, tools, usage, prev):
     return blocks, logs
 
 
+def check_wrapup(texts, wrap):
+    """Blocking findings about the text around the turn's last wrap_up call."""
+    if wrap is None:
+        return []
+    k, ti = wrap
+    before, closing = "\n".join(texts[:k]), "\n".join(texts[k:]).strip()
+    out = []
+    if (ti.get("ask") or "").strip() and len(closing) < WRAPUP_MIN_CHAT:
+        out.append(f"wrapup-chat: the closing text after wrap_up is {len(closing)} chars and the box shows only the recap and ask — {WRAPUP_HINT}")
+    if SHELL_FENCE.search(before) and not SHELL_FENCE.search(closing):
+        out.append(f"wrapup-commands: a shell block sits only in text before the tool calls, which the app collapses — {WRAPUP_HINT}")
+    return out
+
+
 def log(session_id, findings):
     if not findings:
         return
@@ -206,11 +239,12 @@ def run(d):
     """Hook payload -> the block decision dict, or None."""
     sid = d.get("session_id") or "default"
     path = d.get("transcript_path") or ""
-    trigger, texts, tools, usage, prev = load_turn(path)
+    trigger, texts, tools, usage, prev, wrap = load_turn(path)
     if not trigger:
         return None
     state = load_state(path)
     blocks, logs = check(thai_expected(trigger, path), texts, tools, usage, max(prev, state.get("blocked", 0)))
+    blocks += check_wrapup(texts, wrap)
     step = band(usage or 0)
     boundary = any(b.startswith("boundary") for b in blocks)
     seen = state.get("logged", 0)
@@ -219,8 +253,8 @@ def run(d):
         state["logged"] = max(seen, step)
     if len(tools) < 2:
         # A text-only reply is where the language drifts most and the cheapest to redo;
-        # the boundary line is not owed on a short answer.
-        blocks = [b for b in blocks if b.startswith("language")]
+        # the boundary line is not owed on a short answer. A lone wrap_up call still owes its closing text.
+        blocks = [b for b in blocks if b.startswith(("language", "wrapup"))]
     out = None
     if blocks and kind(trigger) in ("typed", "pasted") and not d.get("stop_hook_active"):
         if any(b.startswith("boundary") for b in blocks):
@@ -333,6 +367,34 @@ def selftest():
         with open(p1, "a", encoding="utf-8") as f:
             f.write(open(p2, encoding="utf-8").read())
         return p1
+
+    # wrap_up: text written after the call is the closing message.
+    def wrap_turn(name, rows):
+        """rows: ("text", str) or ("tool", name, input), after one Thai typed prompt."""
+        path = os.path.join(tmp, name + ".jsonl")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"type": "user", "message": {"role": "user", "content": "ข้อ 1 ย้ายไป Stop hook ตามที่เสนอ"}}) + "\n")
+            for r in rows:
+                b = {"type": "text", "text": r[1]} if r[0] == "text" else {"type": "tool_use", "name": r[1], "input": r[2]}
+                f.write(json.dumps({"type": "assistant", "message": {"content": [b], "usage": {"input_tokens": 50_000}}}, ensure_ascii=False) + "\n")
+        return run({"session_id": sid, "transcript_path": path})
+
+    box = {"recap": "ตรวจแล้ว", "ask": "ข้อ 1 ใช้แนวทางไหน"}
+    long_th = "ข้อ 1 ต้นเหตุจริงคือ hook มองไม่เห็น text ใน message เดียวกับ wrap_up · ข้อเสนอ: ย้าย check ไป Stop hook " * 12
+    assert len(long_th.encode()) >= 1500
+    # d21f577c shape: a 28-char line, tools, wrap_up with an ask, then the 1.5 KB closing -> pass.
+    assert wrap_turn("wrap-ok", [("text", "→ self: plugin repo ของผมเอง"), ("tool", "Bash", {}), ("tool", WRAP_UP, box), ("text", long_th)]) is None
+    # d9b10a57 L435 shape: the long answer sits before the call and nothing follows -> block.
+    out = wrap_turn("wrap-short", [("tool", "Bash", {}), ("text", long_th), ("tool", WRAP_UP, box), ("text", "รอคำตอบ")])
+    assert out and out["reason"].startswith("wrapup-chat") and "never 'see above'" in out["reason"], out
+    # 37dda5c5 04:21 shape: a bash fence only before the tools, closing says "the blocks above" -> block with the hint.
+    fence = "รัน 5 บล็อกนี้ก่อน\n```bash\npnpm prisma:generate\n```\n"
+    out = wrap_turn("wrap-fence", [("text", fence), ("tool", "Bash", {}), ("tool", WRAP_UP, {"recap": "ตรวจแล้ว"}), ("text", "รันบล็อกด้านบนแล้วบอกผล")])
+    assert out and out["reason"].startswith("wrapup-commands") and "never 'see above'" in out["reason"], out
+    # The same fence repeated in the closing text -> pass; a lone wrap_up (one tool) still blocks.
+    assert wrap_turn("wrap-fence-ok", [("text", fence), ("tool", "Bash", {}), ("tool", WRAP_UP, {"recap": "ตรวจแล้ว"}), ("text", fence)]) is None
+    assert wrap_turn("wrap-lone", [("tool", WRAP_UP, box)])
+    assert logged("wrapup-chat") and logged("wrapup-commands")
 
     # Resume with a new session id: the 300k line said before the resume still counts (6fbb0112 → 32391224).
     p = two_turns("resume", th, 331_000)
