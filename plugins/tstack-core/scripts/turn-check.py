@@ -11,17 +11,22 @@ transcript entry after the latest user message with text, and:
               inherits the last typed message that set a language, as in
               terse-by-lang) and the reply's prose has none
               -> BLOCK (Claude answers again in Thai). c1025ec5 l.1668 etc.
-  boundary  — context passed one of CONTEXT_STOPS (150k / 300k / 500k, the
+  boundary  — context passed one of CONTEXT_STOPS (300k / 500k, the
               context-band scale), no earlier reply in the transcript said a
               `context Nk/1M` line at or past that stop, and this reply has none
               -> BLOCK (say the line). 05deb162 l.779/905/1073/1359. The
-              transcript, not per-session state, says what was already said:
-              a resume gets a new session id and TMPDIR, and a state file
-              keyed on them fired the 150k stop twice (6fbb0112 → 32391224).
-  routing   — >= 5 tool calls or any Edit/Write, and no reply line starts
-              with `→` -> LOG only (the fix is lane agent definitions, not
-              a line said after the fact). 05deb162 l.642/807/1004/1280,
-              c1025ec5 l.1628.
+              transcript says what was already said: a resume gets a new
+              session id and TMPDIR, and a state file keyed on them fired the
+              150k stop twice (6fbb0112 → 32391224). Which band was already
+              logged or blocked lives in a state file keyed on the transcript
+              path, so a band is logged once and blocked once (2026-10-25
+              retro: 29 repeat "first time" rows). The 150k stop was dropped
+              the same retro: turn-1 context is already 150–218k.
+  routing   — the turn has an Agent call or an Edit/Write on a file inside a
+              git repository, and no reply line starts with `→` -> LOG only.
+              05deb162 l.642/807/1004/1280, c1025ec5 l.1628. Read-only and
+              scratch-file turns are not checked (2026-10-25 retro: 185 rows,
+              0 complaints).
 
 Every finding is appended to ~/.claude/turn-check.log (TSV: ts, session,
 check, detail) so the Sunday retro counts them without a transcript scan,
@@ -30,9 +35,11 @@ whether or not it blocked. A block never fires twice in a row
 turn with at most one tool call only the language check blocks. Any
 exception fails open.
 """
+import hashlib
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 import time
@@ -41,9 +48,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from prompt_source import has_thai, kind, last_typed_prompt  # noqa: E402
 
 # Band stops in tokens, the same scale the context-band mod draws (green -> yellow -> red).
-# Decision G, 2026-10-19: replaced "180k then every 50k" (6-8 lines per long session) with 3 stops.
-CONTEXT_STOPS = (150_000, 300_000, 500_000)
+# Decision G, 2026-10-19: replaced "180k then every 50k" (6-8 lines per long session) with 3 stops;
+# 2026-10-25 retro verdict: 150k dropped (rang at turn 1-2, 0 moves after it; 3 of 3 moves came after 300k).
+CONTEXT_STOPS = (300_000, 500_000)
 LOG = os.path.expanduser("~/.claude/turn-check.log")
+STATE_DIR = os.path.expanduser("~/.claude/turn-check-state")
 CONTEXT_LINE = re.compile(r"context\s*~?(\d+)k\s*/\s*1M", re.I)
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 
@@ -59,8 +68,42 @@ def user_text(d) -> str:
 
 
 def band(tokens: int) -> int:
-    """150k -> 1, 300k -> 2, 500k -> 3, below 150k -> 0."""
+    """300k -> 1, 500k -> 2, below 300k -> 0."""
     return sum(1 for s in CONTEXT_STOPS if tokens >= s)
+
+
+def state_path(transcript_path: str) -> str:
+    return os.path.join(STATE_DIR, hashlib.sha1(os.path.abspath(transcript_path).encode()).hexdigest()[:16] + ".json")
+
+
+def load_state(transcript_path: str) -> dict:
+    try:
+        return json.load(open(state_path(transcript_path), encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(transcript_path: str, state: dict) -> None:
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(state_path(transcript_path), "w", encoding="utf-8") as f:
+            json.dump(state, f)
+    except OSError:
+        pass
+
+
+def in_repo(path: str) -> bool:
+    d = os.path.dirname(os.path.abspath(path)) if path else ""
+    while d and d != os.path.dirname(d):
+        if os.path.exists(os.path.join(d, ".git")):
+            return True
+        d = os.path.dirname(d)
+    return False
+
+
+def needs_routing(tools) -> bool:
+    """An Agent dispatch, or an edit to a repository file (scratch and memory files do not count)."""
+    return any(n == "Agent" or (n in EDIT_TOOLS and in_repo(i.get("file_path") or i.get("notebook_path") or "")) for n, i in tools)
 
 
 def said_band(entries) -> int:
@@ -77,7 +120,7 @@ def said_band(entries) -> int:
 
 
 def load_turn(transcript_path: str):
-    """Return (trigger prompt, assistant text blocks, tool names, last context total, band said before this turn)."""
+    """Return (trigger prompt, assistant text blocks, (tool name, input) pairs, last context total, band said before this turn)."""
     entries = []
     for line in open(transcript_path, encoding="utf-8").read().splitlines():
         try:
@@ -101,7 +144,7 @@ def load_turn(transcript_path: str):
             if b.get("type") == "text" and b.get("text", "").strip():
                 texts.append(b["text"])
             elif b.get("type") == "tool_use":
-                tools.append(b.get("name", ""))
+                tools.append((b.get("name", ""), b.get("input") or {}))
         u = m.get("usage") or {}
         if u:
             usage = sum(int(u.get(k, 0) or 0) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
@@ -141,9 +184,9 @@ def check(thai, texts, tools, usage, prev):
         step = band(usage)
         if step > prev and not CONTEXT_LINE.search("\n".join(texts)):
             blocks.append(f"boundary: context is {usage // 1000}k/1M, past the {CONTEXT_STOPS[step - 1] // 1000}k band stop for the first time this session — say the one-line `context Nk/1M (measured) · next: … · recommendation` (the user decides)")
-    heavy = len(tools) >= 5 or any(n in EDIT_TOOLS for n in tools)
-    if heavy and not any(ln.lstrip().startswith("→") for t in texts for ln in t.splitlines()):
-        logs.append(f"routing: {len(tools)} tool calls ({', '.join(sorted(set(tools)))[:80]}) and no `→ delegate/self` line")
+    if needs_routing(tools) and not any(ln.lstrip().startswith("→") for t in texts for ln in t.splitlines()):
+        names = sorted({n for n, _ in tools})
+        logs.append(f"routing: {len(tools)} tool calls ({', '.join(names)[:80]}) with an Agent call or a repository edit and no `→ delegate/self` line")
     return blocks, logs
 
 
@@ -166,33 +209,49 @@ def run(d):
     trigger, texts, tools, usage, prev = load_turn(path)
     if not trigger:
         return None
-    blocks, logs = check(thai_expected(trigger, path), texts, tools, usage, prev)
-    log(sid, blocks + logs)
+    state = load_state(path)
+    blocks, logs = check(thai_expected(trigger, path), texts, tools, usage, max(prev, state.get("blocked", 0)))
+    step = band(usage or 0)
+    boundary = any(b.startswith("boundary") for b in blocks)
+    seen = state.get("logged", 0)
+    log(sid, [x for x in blocks + logs if not (x.startswith("boundary") and step <= seen)])
+    if boundary:
+        state["logged"] = max(seen, step)
     if len(tools) < 2:
         # A text-only reply is where the language drifts most and the cheapest to redo;
         # the boundary line is not owed on a short answer.
         blocks = [b for b in blocks if b.startswith("language")]
+    out = None
     if blocks and kind(trigger) in ("typed", "pasted") and not d.get("stop_hook_active"):
-        return {"decision": "block", "reason": " | ".join(blocks)}
-    return None
+        if any(b.startswith("boundary") for b in blocks):
+            state["blocked"] = step
+        out = {"decision": "block", "reason": " | ".join(blocks)}
+    if boundary:
+        save_state(path, state)
+    return out
 
 
 def selftest():
-    global LOG
+    global LOG, STATE_DIR
     real_log = LOG
     real_size = os.path.getsize(real_log) if os.path.exists(real_log) else None
     tmp = tempfile.mkdtemp(prefix="turn-check-selftest-")
     LOG = os.path.join(tmp, "turn-check.log")
+    STATE_DIR = os.path.join(tmp, "state")
     sid = "turn-check-selftest"
 
     def transcript(name, prompts, reply, tools, usage=50_000):
-        """prompts: earlier user messages, last one starts the turn; then tool calls + tool results + reply."""
+        """prompts: earlier user messages, last one starts the turn; then tool calls + tool results + reply.
+
+        tools: names, or (name, input) pairs.
+        """
         path = os.path.join(tmp, name + ".jsonl")
         with open(path, "w", encoding="utf-8") as f:
             for p in prompts:
                 f.write(json.dumps({"type": "user", "message": {"role": "user", "content": p}}) + "\n")
             for t in tools:
-                f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": t}], "usage": {"input_tokens": usage}}}) + "\n")
+                n, i = t if isinstance(t, tuple) else (t, {})
+                f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": n, "input": i}], "usage": {"input_tokens": usage}}}) + "\n")
                 f.write(json.dumps({"type": "user", "message": {"content": [{"type": "tool_result", "content": "ok"}]}}) + "\n")
             f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": reply}], "usage": {"input_tokens": usage}}}) + "\n")
         return path
@@ -223,47 +282,68 @@ def selftest():
         assert out and out["reason"].startswith("language"), (name, out)
     # Queued turn after Thai: logged, never blocked.
     assert run({"session_id": sid, "transcript_path": transcript("queued", ["ขอ verify ที่นี่", "<task-notification>x</task-notification>"], en, ["Bash", "Bash"])}) is None
-    # 5 tool calls, English typed prompt, no `→` line -> routing row logged, no block.
-    before = len(logged("routing"))
-    p = transcript("routing", ["please rerun the failed verify scenarios now"], en, ["Bash"] * 5)
-    assert run({"session_id": sid, "transcript_path": p}) is None
-    assert len(logged("routing")) == before + 1, logged("routing")
-    # Boundary: passing a band stop (150k / 300k / 500k) without the line blocks;
+    # Routing: an Agent call or a repository edit without a `→` line -> one row, no block;
+    # a 7-tool read-only turn and a scratch-file edit -> no row.
+    repo = os.path.join(tmp, "repo")
+    os.makedirs(os.path.join(repo, ".git"))
+    prompt = ["please rerun the failed verify scenarios now"]
+    for name, tools, rows in (("read-only", ["Read", "Grep", "Bash"] * 2 + ["Read"], 0),
+                              ("scratch", [("Write", {"file_path": os.path.join(tmp, "scratch.txt")}), "Bash"], 0),
+                              ("agent", [("Agent", {"subagent_type": "verify"}), "Bash"], 1),
+                              ("repo-edit", [("Edit", {"file_path": os.path.join(repo, "src", "a.py")}), "Bash"], 1)):
+        before = len(logged("routing"))
+        assert run({"session_id": sid, "transcript_path": transcript(name, prompt, en, tools)}) is None
+        assert len(logged("routing")) == before + rows, (name, logged("routing"))
+    # Boundary: passing a band stop (300k / 500k) without the line blocks;
     # the band already said, or the line in this reply -> silent; the next stop blocks again.
-    no_line = th.replace("context 231k/1M (measured)", "")
-    b, _ = check(False, [en], ["Bash"] * 2, 231_000, 0)
-    assert any(x.startswith("boundary") and "150k" in x for x in b), b
-    b, l = check(True, [th], ["Bash"] * 6, 231_000, 0)
-    assert b == [] and l == [], (b, l)
-    b, _ = check(True, [no_line], ["Bash"] * 2, 281_000, 1)
-    assert b == [], b  # still the 150k band: no new line owed
-    b, _ = check(True, [no_line], ["Bash"] * 2, 320_000, 1)
+    th = th.replace("231k", "331k")
+    BASH2 = [("Bash", {})] * 2
+    no_line = th.replace("context 331k/1M (measured)", "")
+    b, _ = check(False, [en], BASH2, 231_000, 0)
+    assert b == [], b  # 150k is no longer a stop
+    b, _ = check(False, [en], BASH2, 331_000, 0)
     assert any(x.startswith("boundary") and "300k" in x for x in b), b
-    b, _ = check(True, [no_line], ["Bash"] * 2, 520_000, 2)
+    b, l = check(True, [th], BASH2 * 3, 331_000, 0)
+    assert b == [] and l == [], (b, l)
+    b, _ = check(True, [no_line], BASH2, 420_000, 1)
+    assert b == [], b  # still the 300k band: no new line owed
+    b, _ = check(True, [no_line], BASH2, 520_000, 1)
     assert any(x.startswith("boundary") and "500k" in x for x in b), b
     # Boundary alone on a text-only turn: logged, not blocked (no context line owed on a short answer).
-    p = transcript("short", ["ขอ verify ที่นี่"], no_line, [], usage=231_000)
+    p = transcript("short", ["ขอ verify ที่นี่"], no_line, [], usage=331_000)
     assert run({"session_id": sid, "transcript_path": p}) is None
-    assert logged("boundary")
+    assert len(logged("boundary")) == 1
+    # Resumed transcript with the 300k row already logged: the next text-only turn adds no row.
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(open(transcript("short-2", ["ต่อ"], no_line, [], usage=340_000), encoding="utf-8").read())
+    assert run({"session_id": "resumed-new-id", "transcript_path": p}) is None
+    assert len(logged("boundary")) == 1, logged("boundary")
+    # Blocked once at 300k and answered without the line: the next heavy turn is not blocked again.
+    p = transcript("blocked", ["ขอ verify ที่นี่"], no_line, BASH2, usage=331_000)
+    out = run({"session_id": sid, "transcript_path": p})
+    assert out and "300k" in out["reason"], out
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(open(transcript("blocked-2", ["ต่อเลย"], no_line, BASH2, usage=350_000), encoding="utf-8").read())
+    assert run({"session_id": sid, "transcript_path": p}) is None
 
-    def two_turns(name, first_reply, first_usage, usage=250_000):
+    def two_turns(name, first_reply, first_usage, usage=350_000):
         """Turn 1 replies at first_usage; turn 2 (heavy, no context line) runs at usage."""
         p1 = transcript(name, ["ขอ verify ที่นี่"], first_reply, [], usage=first_usage)
-        p2 = transcript(name + "-2", ["ต่อเลย"], no_line, ["Bash"] * 2, usage=usage)
+        p2 = transcript(name + "-2", ["ต่อเลย"], no_line, BASH2, usage=usage)
         with open(p1, "a", encoding="utf-8") as f:
             f.write(open(p2, encoding="utf-8").read())
         return p1
 
-    # Resume with a new session id: the 150k line said before the resume still counts (6fbb0112 → 32391224).
-    p = two_turns("resume", th, 231_000)
+    # Resume with a new session id: the 300k line said before the resume still counts (6fbb0112 → 32391224).
+    p = two_turns("resume", th, 331_000)
     assert run({"session_id": "resumed-new-id", "transcript_path": p}) is None
-    # Earlier turn passed 150k without the line (text-only, not blocked) -> the next heavy turn still owes it.
-    p = two_turns("owed", no_line, 231_000)
+    # Earlier turn passed 300k without the line (text-only, not blocked) -> the next heavy turn still owes it.
+    p = two_turns("owed", no_line, 331_000)
     out = run({"session_id": "resumed-new-id", "transcript_path": p})
-    assert out and "boundary" in out["reason"] and "150k" in out["reason"], out
-    # A line said at 231k does not cover the 300k stop.
-    out = run({"session_id": sid, "transcript_path": two_turns("next", th, 231_000, usage=320_000)})
-    assert out and "300k" in out["reason"], out
+    assert out and "boundary" in out["reason"] and "300k" in out["reason"], out
+    # A line said at 331k does not cover the 500k stop.
+    out = run({"session_id": sid, "transcript_path": two_turns("next", th, 331_000, usage=520_000)})
+    assert out and "500k" in out["reason"], out
     # Broken transcript path -> exception, which main() turns into a silent exit 0.
     try:
         run({"session_id": sid, "transcript_path": os.path.join(tmp, "missing.jsonl")})
@@ -272,9 +352,7 @@ def selftest():
         pass
 
     assert (os.path.getsize(real_log) if os.path.exists(real_log) else None) == real_size, "real log was written"
-    for f in os.listdir(tmp):
-        os.remove(os.path.join(tmp, f))
-    os.rmdir(tmp)
+    shutil.rmtree(tmp)
     print("turn-check selftest ok")
 
 
